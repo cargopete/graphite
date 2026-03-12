@@ -370,16 +370,77 @@ fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
 }
 
 fn cmd_build(release: bool) -> Result<()> {
-    // TODO: Build WASM
-    // - Run cargo build --target wasm32-unknown-unknown
-    // - Run wasm-opt for size optimization
-    // - Validate exported functions match manifest
-    // - Copy to build/ directory
-    let mode = if release { "--release" } else { "" };
-    println!(
-        "  TODO: Would run: cargo build --target wasm32-unknown-unknown {}",
-        mode
-    );
+    const TARGET: &str = "wasm32-unknown-unknown";
+
+    // Build with cargo
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("build").arg("--target").arg(TARGET);
+
+    if release {
+        cmd.arg("--release");
+    }
+
+    println!("  Running: cargo build --target {} {}", TARGET, if release { "--release" } else { "" });
+
+    let status = cmd.status().context("Failed to run cargo build")?;
+    if !status.success() {
+        anyhow::bail!("cargo build failed");
+    }
+
+    // Find the built wasm file
+    let profile = if release { "release" } else { "debug" };
+    let target_dir = PathBuf::from("target").join(TARGET).join(profile);
+
+    // Get crate name from Cargo.toml
+    let cargo_toml = std::fs::read_to_string("Cargo.toml")
+        .context("Failed to read Cargo.toml")?;
+    let crate_name = cargo_toml
+        .lines()
+        .find(|l| l.starts_with("name"))
+        .and_then(|l| l.split('=').nth(1))
+        .map(|s| s.trim().trim_matches('"').replace('-', "_"))
+        .context("Could not find crate name in Cargo.toml")?;
+
+    let wasm_file = target_dir.join(format!("{}.wasm", crate_name));
+
+    if !wasm_file.exists() {
+        anyhow::bail!("WASM file not found: {}", wasm_file.display());
+    }
+
+    let size = std::fs::metadata(&wasm_file)?.len();
+    println!("  Built: {} ({:.1} KB)", wasm_file.display(), size as f64 / 1024.0);
+
+    // Create build directory and copy
+    let build_dir = PathBuf::from("build");
+    std::fs::create_dir_all(&build_dir)?;
+
+    let output_file = build_dir.join(format!("{}.wasm", crate_name));
+    std::fs::copy(&wasm_file, &output_file)?;
+    println!("  Copied to: {}", output_file.display());
+
+    // Try to optimize with wasm-opt if available
+    if let Ok(status) = std::process::Command::new("wasm-opt")
+        .arg("-Oz")
+        .arg(&output_file)
+        .arg("-o")
+        .arg(&output_file)
+        .status()
+    {
+        if status.success() {
+            let optimized_size = std::fs::metadata(&output_file)?.len();
+            println!(
+                "  Optimized with wasm-opt: {:.1} KB → {:.1} KB",
+                size as f64 / 1024.0,
+                optimized_size as f64 / 1024.0
+            );
+        }
+    } else {
+        println!("  (wasm-opt not found, skipping optimization)");
+    }
+
+    println!();
+    println!("Build complete! WASM file: {}", output_file.display());
+
     Ok(())
 }
 

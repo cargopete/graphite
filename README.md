@@ -106,7 +106,7 @@ Then run `graphite codegen` to generate:
 - [x] Event decoding (`EventDecode` trait + decode helpers)
 - [x] WASM ABI layer (FFI to graph-node)
 - [x] `graphite init` scaffolding
-- [ ] `graphite build` WASM compilation
+- [x] `graphite build` WASM compilation (with wasm-opt if available)
 - [ ] Full AS memory marshalling (Entity serialization)
 - [ ] Integration testing with graph-node
 - [ ] Documentation
