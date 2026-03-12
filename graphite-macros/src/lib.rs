@@ -162,23 +162,48 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
         _ => panic!("Handler cannot have self parameter"),
     };
 
-    // Generate the wrapper
-    let wrapper_name = syn::Ident::new(&format!("__{}_wrapper", fn_name), fn_name.span());
+    // Generate the wrapper - named after the original function for graph-node to call
+    // e.g., handle_transfer becomes handle_transfer (the extern "C" entry point)
+    let impl_name = syn::Ident::new(&format!("__{}_impl", fn_name), fn_name.span());
 
     let expanded = quote! {
-        // The user's original function (for native testing)
-        #fn_vis fn #fn_name<H: graphite::host::HostFunctions>(
+        // The implementation function (for native testing with MockHost)
+        #fn_vis fn #impl_name<H: graphite::host::HostFunctions>(
             host: &mut H,
             #param_name: &#param_type
         ) #fn_body
 
-        // The extern "C" wrapper for WASM (only compiled for wasm target)
+        // Native (non-WASM) version - just calls impl with provided host
+        #[cfg(not(target_arch = "wasm32"))]
+        #fn_vis fn #fn_name<H: graphite::host::HostFunctions>(
+            host: &mut H,
+            #param_name: &#param_type
+        ) {
+            #impl_name(host, #param_name)
+        }
+
+        // The extern "C" wrapper for WASM - this is what graph-node calls
         #[cfg(target_arch = "wasm32")]
-        #[no_mangle]
-        pub extern "C" fn #wrapper_name(event_ptr: u32, event_len: u32) {
-            // TODO: Implement WASM memory reading and deserialization
-            // This will be filled in when we implement the WASM ABI layer
-            unimplemented!("WASM wrapper not yet implemented")
+        #[unsafe(no_mangle)]
+        pub extern "C" fn #fn_name(event_ptr: u32, event_len: u32) -> u32 {
+            // SAFETY: graph-node passes valid ptr+len pointing to serialized event
+            let bytes = unsafe {
+                core::slice::from_raw_parts(event_ptr as *const u8, event_len as usize)
+            };
+
+            // Deserialize the event from graph-node's TLV format
+            let #param_name = match <#param_type as graphite::decode::FromWasmBytes>::from_wasm_bytes(bytes) {
+                Ok(e) => e,
+                Err(_) => return 1, // Deserialization error
+            };
+
+            // Create the WASM host for calling back into graph-node
+            let mut host = graphite::wasm::WasmHost::new();
+
+            // Call the actual handler implementation
+            #impl_name(&mut host, &#param_name);
+
+            0 // Success
         }
     };
 

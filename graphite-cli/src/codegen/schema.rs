@@ -25,6 +25,10 @@ pub fn generate_schema_entities(schema_path: &Path) -> Result<String> {
     writeln!(output)?;
     writeln!(output, "#![allow(dead_code)]")?;
     writeln!(output)?;
+    writeln!(output, "extern crate alloc;")?;
+    writeln!(output)?;
+    writeln!(output, "use alloc::string::String;")?;
+    writeln!(output, "use alloc::vec::Vec;")?;
     writeln!(output, "use graphite::prelude::*;")?;
     writeln!(output)?;
 

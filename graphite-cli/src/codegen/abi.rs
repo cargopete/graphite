@@ -28,6 +28,11 @@ pub fn generate_abi_bindings(abi_path: &Path, contract_name: &str) -> Result<Str
     writeln!(output, "#![allow(dead_code)]")?;
     writeln!(output, "#![allow(clippy::too_many_arguments)]")?;
     writeln!(output)?;
+    writeln!(output, "extern crate alloc;")?;
+    writeln!(output)?;
+    writeln!(output, "use alloc::format;")?;
+    writeln!(output, "use alloc::string::String;")?;
+    writeln!(output, "use alloc::vec::Vec;")?;
     writeln!(output, "use graphite::prelude::*;")?;
     writeln!(output)?;
 
@@ -120,6 +125,10 @@ fn generate_event_struct(event: &Event, contract_name: &str) -> Result<String> {
     // Generate EventDecode implementation
     let decode_impl = generate_event_decode_impl(event, &struct_name)?;
     output.push_str(&decode_impl);
+
+    // Generate FromWasmBytes implementation for WASM deserialization
+    let wasm_impl = generate_from_wasm_bytes_impl(event, &struct_name)?;
+    output.push_str(&wasm_impl);
 
     Ok(output)
 }
@@ -265,6 +274,191 @@ fn data_decode_expr(sol_type: &str, offset: usize) -> (String, usize) {
             format!("graphite::decode::decode_bytes32(data, {})", offset),
             32,
         ),
+    }
+}
+
+/// Generate FromWasmBytes implementation for deserializing from graph-node's TLV format.
+///
+/// Graph-node serializes events as entities with these well-known fields:
+/// - `__block_number`: BigInt
+/// - `__block_timestamp`: BigInt
+/// - `__tx_hash`: Bytes (32)
+/// - `__log_index`: BigInt
+/// - `__address`: Address (20)
+/// - Event-specific fields by name (in camelCase)
+fn generate_from_wasm_bytes_impl(event: &Event, struct_name: &str) -> Result<String> {
+    let mut output = String::new();
+
+    writeln!(output, "impl FromWasmBytes for {} {{", struct_name)?;
+    writeln!(
+        output,
+        "    fn from_wasm_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {{"
+    )?;
+    writeln!(output, "        use graphite::decode::{{TlvReader, value_tag}};")?;
+    writeln!(output)?;
+    writeln!(output, "        let mut reader = TlvReader::new(bytes);")?;
+    writeln!(output)?;
+    writeln!(output, "        // Read field count")?;
+    writeln!(output, "        let field_count = reader.read_u32()?;")?;
+    writeln!(output)?;
+    writeln!(output, "        // Initialize with defaults")?;
+    writeln!(output, "        let mut tx_hash = B256::default();")?;
+    writeln!(output, "        let mut log_index = BigInt::zero();")?;
+    writeln!(output, "        let mut block_number = BigInt::zero();")?;
+    writeln!(output, "        let mut block_timestamp = BigInt::zero();")?;
+    writeln!(output, "        let mut address = Address::ZERO;")?;
+
+    // Initialize event-specific fields
+    let mut seen_names = HashSet::new();
+    for (i, param) in event.inputs.iter().enumerate() {
+        let field_name = param_to_field_name(param, i, &mut seen_names);
+        let rust_type = solidity_to_rust_type(&param.ty);
+        let default = default_for_type(&rust_type);
+        writeln!(output, "        let mut {} = {};", field_name, default)?;
+    }
+
+    writeln!(output)?;
+    writeln!(output, "        // Read all fields")?;
+    writeln!(output, "        for _ in 0..field_count {{")?;
+    writeln!(output, "            let key = reader.read_string()?;")?;
+    writeln!(output, "            let tag = reader.read_u8()?;")?;
+    writeln!(output)?;
+    writeln!(output, "            match key.as_str() {{")?;
+
+    // Metadata fields
+    writeln!(output, "                \"__tx_hash\" | \"txHash\" => {{")?;
+    writeln!(output, "                    if tag == value_tag::BYTES {{")?;
+    writeln!(output, "                        tx_hash = reader.read_b256()?;")?;
+    writeln!(output, "                    }} else {{")?;
+    writeln!(output, "                        reader.skip_value_data(tag)?;")?;
+    writeln!(output, "                    }}")?;
+    writeln!(output, "                }}")?;
+
+    writeln!(output, "                \"__log_index\" | \"logIndex\" => {{")?;
+    writeln!(output, "                    if tag == value_tag::BIGINT {{")?;
+    writeln!(output, "                        log_index = reader.read_bigint()?;")?;
+    writeln!(output, "                    }} else {{")?;
+    writeln!(output, "                        reader.skip_value_data(tag)?;")?;
+    writeln!(output, "                    }}")?;
+    writeln!(output, "                }}")?;
+
+    writeln!(output, "                \"__block_number\" | \"blockNumber\" => {{")?;
+    writeln!(output, "                    if tag == value_tag::BIGINT {{")?;
+    writeln!(output, "                        block_number = reader.read_bigint()?;")?;
+    writeln!(output, "                    }} else {{")?;
+    writeln!(output, "                        reader.skip_value_data(tag)?;")?;
+    writeln!(output, "                    }}")?;
+    writeln!(output, "                }}")?;
+
+    writeln!(
+        output,
+        "                \"__block_timestamp\" | \"blockTimestamp\" => {{"
+    )?;
+    writeln!(output, "                    if tag == value_tag::BIGINT {{")?;
+    writeln!(output, "                        block_timestamp = reader.read_bigint()?;")?;
+    writeln!(output, "                    }} else {{")?;
+    writeln!(output, "                        reader.skip_value_data(tag)?;")?;
+    writeln!(output, "                    }}")?;
+    writeln!(output, "                }}")?;
+
+    writeln!(output, "                \"__address\" | \"address\" => {{")?;
+    writeln!(output, "                    if tag == value_tag::ADDRESS {{")?;
+    writeln!(output, "                        address = reader.read_address()?;")?;
+    writeln!(output, "                    }} else {{")?;
+    writeln!(output, "                        reader.skip_value_data(tag)?;")?;
+    writeln!(output, "                    }}")?;
+    writeln!(output, "                }}")?;
+
+    // Event-specific fields
+    seen_names.clear();
+    for (i, param) in event.inputs.iter().enumerate() {
+        let field_name = param_to_field_name(param, i, &mut seen_names);
+        let camel_name = field_name_to_camel(&field_name);
+        let rust_type = solidity_to_rust_type(&param.ty);
+
+        writeln!(output, "                \"{}\" => {{", camel_name)?;
+        let read_expr = tlv_read_expr_for_type(&rust_type);
+        writeln!(output, "                    {} = {};", field_name, read_expr)?;
+        writeln!(output, "                }}")?;
+    }
+
+    writeln!(output, "                _ => {{")?;
+    writeln!(output, "                    // Unknown field, skip it")?;
+    writeln!(output, "                    reader.skip_value_data(tag)?;")?;
+    writeln!(output, "                }}")?;
+    writeln!(output, "            }}")?;
+    writeln!(output, "        }}")?;
+    writeln!(output)?;
+
+    writeln!(output, "        Ok(Self {{")?;
+    writeln!(output, "            tx_hash,")?;
+    writeln!(output, "            log_index,")?;
+    writeln!(output, "            block_number,")?;
+    writeln!(output, "            block_timestamp,")?;
+    writeln!(output, "            address,")?;
+
+    seen_names.clear();
+    for (i, param) in event.inputs.iter().enumerate() {
+        let field_name = param_to_field_name(param, i, &mut seen_names);
+        writeln!(output, "            {},", field_name)?;
+    }
+
+    writeln!(output, "        }})")?;
+    writeln!(output, "    }}")?;
+    writeln!(output, "}}")?;
+    writeln!(output)?;
+
+    Ok(output)
+}
+
+/// Convert snake_case field name to camelCase for TLV key matching.
+fn field_name_to_camel(s: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = false;
+
+    for c in s.chars() {
+        if c == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+/// Get a default value for a Rust type.
+fn default_for_type(rust_type: &str) -> String {
+    match rust_type {
+        "Address" => "Address::ZERO".to_string(),
+        "BigInt" => "BigInt::zero()".to_string(),
+        "B256" => "B256::default()".to_string(),
+        "Bytes" => "Bytes::default()".to_string(),
+        "String" => "String::new()".to_string(),
+        "bool" => "false".to_string(),
+        "i32" | "i64" => "0".to_string(),
+        s if s.starts_with("Vec<") => "Vec::new()".to_string(),
+        s if s.starts_with('[') => format!("{} {{ todo!() }}", s), // Fixed-size array
+        _ => "Default::default()".to_string(),
+    }
+}
+
+/// Generate TLV read expression for a Rust type.
+fn tlv_read_expr_for_type(rust_type: &str) -> String {
+    match rust_type {
+        "Address" => "reader.read_address()?".to_string(),
+        "BigInt" => "reader.read_bigint()?".to_string(),
+        "B256" => "reader.read_b256()?".to_string(),
+        "Bytes" => "reader.read_bytes_value()?".to_string(),
+        "String" => "reader.read_string()?".to_string(),
+        "bool" => "(reader.read_u8()? != 0)".to_string(),
+        "i32" => "reader.read_i32()?".to_string(),
+        "i64" => "reader.read_i64()?".to_string(),
+        // For complex types, skip and use default
+        _ => "{ reader.skip_value()?; Default::default() }".to_string(),
     }
 }
 

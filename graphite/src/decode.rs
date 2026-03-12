@@ -161,6 +161,184 @@ pub fn decode_string(data: &[u8], offset: usize) -> Result<String, DecodeError> 
     String::from_utf8(bytes.to_vec()).map_err(|e| DecodeError::InvalidData(e.to_string()))
 }
 
+// ============ TLV Decoding for WASM ============
+
+/// Trait for deserializing types from graph-node's TLV WASM format.
+///
+/// This is used to deserialize events passed from graph-node to handlers.
+/// Generated event structs implement this trait via codegen.
+pub trait FromWasmBytes: Sized {
+    /// Deserialize from TLV-encoded bytes.
+    fn from_wasm_bytes(bytes: &[u8]) -> Result<Self, DecodeError>;
+}
+
+/// Value tag constants matching graph-node's rust_abi/types.rs
+pub mod value_tag {
+    pub const NULL: u8 = 0x00;
+    pub const STRING: u8 = 0x01;
+    pub const INT: u8 = 0x02;
+    pub const INT8: u8 = 0x03;
+    pub const BIGINT: u8 = 0x04;
+    pub const BIGDECIMAL: u8 = 0x05;
+    pub const BOOL: u8 = 0x06;
+    pub const BYTES: u8 = 0x07;
+    pub const ADDRESS: u8 = 0x08;
+    pub const ARRAY: u8 = 0x09;
+}
+
+/// TLV reader helper for deserializing graph-node's format.
+pub struct TlvReader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> TlvReader<'a> {
+    pub fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+
+    pub fn remaining(&self) -> usize {
+        self.data.len() - self.pos
+    }
+
+    pub fn read_u32(&mut self) -> Result<u32, DecodeError> {
+        if self.remaining() < 4 {
+            return Err(DecodeError::DataTooShort {
+                expected: self.pos + 4,
+                got: self.data.len(),
+            });
+        }
+        let val = u32::from_le_bytes(self.data[self.pos..self.pos + 4].try_into().unwrap());
+        self.pos += 4;
+        Ok(val)
+    }
+
+    pub fn read_i32(&mut self) -> Result<i32, DecodeError> {
+        if self.remaining() < 4 {
+            return Err(DecodeError::DataTooShort {
+                expected: self.pos + 4,
+                got: self.data.len(),
+            });
+        }
+        let val = i32::from_le_bytes(self.data[self.pos..self.pos + 4].try_into().unwrap());
+        self.pos += 4;
+        Ok(val)
+    }
+
+    pub fn read_i64(&mut self) -> Result<i64, DecodeError> {
+        if self.remaining() < 8 {
+            return Err(DecodeError::DataTooShort {
+                expected: self.pos + 8,
+                got: self.data.len(),
+            });
+        }
+        let val = i64::from_le_bytes(self.data[self.pos..self.pos + 8].try_into().unwrap());
+        self.pos += 8;
+        Ok(val)
+    }
+
+    pub fn read_u8(&mut self) -> Result<u8, DecodeError> {
+        if self.remaining() < 1 {
+            return Err(DecodeError::DataTooShort {
+                expected: self.pos + 1,
+                got: self.data.len(),
+            });
+        }
+        let val = self.data[self.pos];
+        self.pos += 1;
+        Ok(val)
+    }
+
+    pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], DecodeError> {
+        if self.remaining() < len {
+            return Err(DecodeError::DataTooShort {
+                expected: self.pos + len,
+                got: self.data.len(),
+            });
+        }
+        let val = &self.data[self.pos..self.pos + len];
+        self.pos += len;
+        Ok(val)
+    }
+
+    pub fn read_string(&mut self) -> Result<String, DecodeError> {
+        let len = self.read_u32()? as usize;
+        let bytes = self.read_bytes(len)?;
+        String::from_utf8(bytes.to_vec()).map_err(|e| DecodeError::InvalidData(e.to_string()))
+    }
+
+    pub fn read_bigint(&mut self) -> Result<BigInt, DecodeError> {
+        let len = self.read_u32()? as usize;
+        let bytes = self.read_bytes(len)?;
+        Ok(BigInt::from_signed_bytes_be(bytes))
+    }
+
+    pub fn read_address(&mut self) -> Result<Address, DecodeError> {
+        let bytes = self.read_bytes(20)?;
+        Ok(Address::from_slice(bytes))
+    }
+
+    pub fn read_bytes_value(&mut self) -> Result<Bytes, DecodeError> {
+        let len = self.read_u32()? as usize;
+        let bytes = self.read_bytes(len)?;
+        Ok(Bytes::from_slice(bytes))
+    }
+
+    pub fn read_b256(&mut self) -> Result<B256, DecodeError> {
+        let bytes = self.read_bytes(32)?;
+        Ok(B256::from_slice(bytes))
+    }
+
+    /// Skip a tagged value (reads tag first, then skips value data).
+    pub fn skip_value(&mut self) -> Result<(), DecodeError> {
+        let tag = self.read_u8()?;
+        self.skip_value_data(tag)
+    }
+
+    /// Skip value data when tag has already been read.
+    pub fn skip_value_data(&mut self, tag: u8) -> Result<(), DecodeError> {
+        match tag {
+            value_tag::NULL => Ok(()),
+            value_tag::STRING | value_tag::BYTES | value_tag::BIGINT => {
+                let len = self.read_u32()? as usize;
+                self.read_bytes(len)?;
+                Ok(())
+            }
+            value_tag::INT => {
+                self.read_bytes(4)?;
+                Ok(())
+            }
+            value_tag::INT8 => {
+                self.read_bytes(8)?;
+                Ok(())
+            }
+            value_tag::BIGDECIMAL => {
+                // BigDecimal is scale:i64 + BigInt
+                self.read_bytes(8)?;
+                let len = self.read_u32()? as usize;
+                self.read_bytes(len)?;
+                Ok(())
+            }
+            value_tag::BOOL => {
+                self.read_bytes(1)?;
+                Ok(())
+            }
+            value_tag::ADDRESS => {
+                self.read_bytes(20)?;
+                Ok(())
+            }
+            value_tag::ARRAY => {
+                let count = self.read_u32()?;
+                for _ in 0..count {
+                    self.skip_value()?; // Array elements have their own tags
+                }
+                Ok(())
+            }
+            _ => Err(DecodeError::InvalidData(format!("unknown tag: 0x{:02x}", tag))),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

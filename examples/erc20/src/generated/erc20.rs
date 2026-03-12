@@ -5,6 +5,11 @@
 #![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 
+extern crate alloc;
+
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use graphite::prelude::*;
 
 /// Event: `Approval(address,address,uint256)`
@@ -84,6 +89,95 @@ impl EventDecode for ERC20ApprovalEvent {
         })
     }
 }
+impl FromWasmBytes for ERC20ApprovalEvent {
+    fn from_wasm_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        use graphite::decode::{TlvReader, value_tag};
+
+        let mut reader = TlvReader::new(bytes);
+
+        // Read field count
+        let field_count = reader.read_u32()?;
+
+        // Initialize with defaults
+        let mut tx_hash = B256::default();
+        let mut log_index = BigInt::zero();
+        let mut block_number = BigInt::zero();
+        let mut block_timestamp = BigInt::zero();
+        let mut address = Address::ZERO;
+        let mut owner = Address::ZERO;
+        let mut spender = Address::ZERO;
+        let mut value = BigInt::zero();
+
+        // Read all fields
+        for _ in 0..field_count {
+            let key = reader.read_string()?;
+            let tag = reader.read_u8()?;
+
+            match key.as_str() {
+                "__tx_hash" | "txHash" => {
+                    if tag == value_tag::BYTES {
+                        tx_hash = reader.read_b256()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "__log_index" | "logIndex" => {
+                    if tag == value_tag::BIGINT {
+                        log_index = reader.read_bigint()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "__block_number" | "blockNumber" => {
+                    if tag == value_tag::BIGINT {
+                        block_number = reader.read_bigint()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "__block_timestamp" | "blockTimestamp" => {
+                    if tag == value_tag::BIGINT {
+                        block_timestamp = reader.read_bigint()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "__address" | "address" => {
+                    if tag == value_tag::ADDRESS {
+                        address = reader.read_address()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "owner" => {
+                    owner = reader.read_address()?;
+                }
+                "spender" => {
+                    spender = reader.read_address()?;
+                }
+                "value" => {
+                    value = reader.read_bigint()?;
+                }
+                _ => {
+                    // Unknown field, skip it
+                    reader.skip_value_data(tag)?;
+                }
+            }
+        }
+
+        Ok(Self {
+            tx_hash,
+            log_index,
+            block_number,
+            block_timestamp,
+            address,
+            owner,
+            spender,
+            value,
+        })
+    }
+}
+
 
 /// Event: `Transfer(address,address,uint256)`
 #[derive(Debug, Clone, PartialEq)]
@@ -162,6 +256,95 @@ impl EventDecode for ERC20TransferEvent {
         })
     }
 }
+impl FromWasmBytes for ERC20TransferEvent {
+    fn from_wasm_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        use graphite::decode::{TlvReader, value_tag};
+
+        let mut reader = TlvReader::new(bytes);
+
+        // Read field count
+        let field_count = reader.read_u32()?;
+
+        // Initialize with defaults
+        let mut tx_hash = B256::default();
+        let mut log_index = BigInt::zero();
+        let mut block_number = BigInt::zero();
+        let mut block_timestamp = BigInt::zero();
+        let mut address = Address::ZERO;
+        let mut from = Address::ZERO;
+        let mut to = Address::ZERO;
+        let mut value = BigInt::zero();
+
+        // Read all fields
+        for _ in 0..field_count {
+            let key = reader.read_string()?;
+            let tag = reader.read_u8()?;
+
+            match key.as_str() {
+                "__tx_hash" | "txHash" => {
+                    if tag == value_tag::BYTES {
+                        tx_hash = reader.read_b256()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "__log_index" | "logIndex" => {
+                    if tag == value_tag::BIGINT {
+                        log_index = reader.read_bigint()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "__block_number" | "blockNumber" => {
+                    if tag == value_tag::BIGINT {
+                        block_number = reader.read_bigint()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "__block_timestamp" | "blockTimestamp" => {
+                    if tag == value_tag::BIGINT {
+                        block_timestamp = reader.read_bigint()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "__address" | "address" => {
+                    if tag == value_tag::ADDRESS {
+                        address = reader.read_address()?;
+                    } else {
+                        reader.skip_value_data(tag)?;
+                    }
+                }
+                "from" => {
+                    from = reader.read_address()?;
+                }
+                "to" => {
+                    to = reader.read_address()?;
+                }
+                "value" => {
+                    value = reader.read_bigint()?;
+                }
+                _ => {
+                    // Unknown field, skip it
+                    reader.skip_value_data(tag)?;
+                }
+            }
+        }
+
+        Ok(Self {
+            tx_hash,
+            log_index,
+            block_number,
+            block_timestamp,
+            address,
+            from,
+            to,
+            value,
+        })
+    }
+}
+
 
 /// All events emitted by the ERC20 contract.
 #[derive(Debug, Clone, PartialEq)]

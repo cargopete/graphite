@@ -113,23 +113,35 @@ abi = "abis/ERC20.json"
 
 ## Status
 
-### SDK (this repo) — mostly complete
+### SDK (this repo) — complete
 
 - [x] Core primitives (BigInt, Address, Bytes)
 - [x] `HostFunctions` trait + `MockHost` for native testing
 - [x] `#[derive(Entity)]` macro with load/save/remove
-- [x] ABI → Rust event struct codegen with `EventDecode`
+- [x] `#[handler]` macro with WASM wrapper generation
+- [x] `FromWasmBytes` trait for TLV event deserialization
+- [x] ABI → Rust event struct codegen with `EventDecode` + `FromWasmBytes`
 - [x] Schema.graphql → Entity struct codegen
 - [x] CLI: `init`, `codegen`, `build`, `test`
-- [x] WASM ABI layer (Rust-native protocol, not AS)
+- [x] WASM ABI layer (Rust-native ptr+len protocol)
+- [x] no_std WASM support with alloc
 
-### Graph-node modifications — not started
+### Graph-node modifications — in progress
 
+See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the detailed plan.
+
+Files created in graph-node fork (`runtime/wasm/src/rust_abi/`):
+- [x] `mod.rs` — MappingLanguage enum
+- [x] `types.rs` — `ToRustWasm`/`FromRustWasm` traits + primitives
+- [x] `entity.rs` — Entity TLV serialization
+- [x] `host.rs` — Linker function stubs (needs async integration)
+
+Remaining work:
 - [ ] Parse `language: wasm/rust` in manifest
-- [ ] Add `RustAbiHost` runtime variant
-- [ ] Implement ptr+len host function bindings
-- [ ] Entity serialization (SDK ↔ graph-node)
-- [ ] Integration testing
+- [ ] Wire up dispatch based on MappingLanguage
+- [ ] Complete async store operation integration
+- [ ] Gas metering integration
+- [ ] Integration testing with real subgraph
 
 ## License
 
