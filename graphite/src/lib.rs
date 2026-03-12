@@ -38,6 +38,9 @@ pub mod primitives;
 pub mod store;
 pub mod testing;
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
 /// Prelude module — import everything you need with `use graphite::prelude::*`
 pub mod prelude {
     pub use crate::decode::{DecodeError, EventDecode, RawLog};
@@ -48,6 +51,9 @@ pub mod prelude {
 
     #[cfg(feature = "std")]
     pub use crate::testing::MockHost;
+
+    #[cfg(target_arch = "wasm32")]
+    pub use crate::wasm::WasmHost;
 }
 
 // Re-export key types at crate root

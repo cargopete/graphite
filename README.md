@@ -104,9 +104,10 @@ Then run `graphite codegen` to generate:
 - [x] Schema.graphql → Entity struct codegen
 - [x] CLI with `graphite codegen` command
 - [x] Event decoding (`EventDecode` trait + decode helpers)
-- [ ] WASM ABI layer (FFI to graph-node)
+- [x] WASM ABI layer (FFI to graph-node)
 - [ ] `graphite init` scaffolding
 - [ ] `graphite build` WASM compilation
+- [ ] Full AS memory marshalling (Entity serialization)
 - [ ] Integration testing with graph-node
 - [ ] Documentation
 
