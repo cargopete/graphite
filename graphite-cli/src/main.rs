@@ -117,14 +117,168 @@ fn main() -> Result<()> {
     }
 }
 
-fn cmd_init(_name: &str, _from_contract: Option<&str>, _network: &str) -> Result<()> {
-    // TODO: Scaffold project structure
-    // - Create Cargo.toml with graphite dependency
-    // - Create subgraph.yaml manifest
-    // - Create schema.graphql placeholder
-    // - Create src/lib.rs with example handler
-    // - If from_contract, fetch ABI and generate initial mappings
-    println!("  TODO: Project scaffolding not yet implemented");
+fn cmd_init(name: &str, _from_contract: Option<&str>, network: &str) -> Result<()> {
+    let project_dir = PathBuf::from(name);
+
+    // Check if directory already exists
+    if project_dir.exists() {
+        anyhow::bail!("Directory '{}' already exists", name);
+    }
+
+    // Create directory structure
+    std::fs::create_dir_all(project_dir.join("src"))?;
+    std::fs::create_dir_all(project_dir.join("abis"))?;
+
+    // Create Cargo.toml
+    let cargo_toml = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+graphite = {{ git = "https://github.com/cargopete/graphite.git" }}
+
+[profile.release]
+opt-level = "z"
+lto = true
+"#,
+        name = name
+    );
+    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml)?;
+    println!("  Created Cargo.toml");
+
+    // Create graphite.toml
+    let graphite_toml = format!(
+        r#"# Graphite subgraph configuration
+
+output_dir = "src/generated"
+schema = "schema.graphql"
+
+# Add your contract ABIs here:
+# [[contracts]]
+# name = "MyContract"
+# abi = "abis/MyContract.json"
+"#
+    );
+    std::fs::write(project_dir.join("graphite.toml"), graphite_toml)?;
+    println!("  Created graphite.toml");
+
+    // Create subgraph.yaml (The Graph manifest)
+    let subgraph_yaml = format!(
+        r#"specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: {name}
+    network: {network}
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: {name}
+      startBlock: 0
+    mapping:
+      kind: wasm/rust
+      apiVersion: 0.0.7
+      language: rust
+      entities:
+        - ExampleEntity
+      abis:
+        - name: {name}
+          file: ./abis/{name}.json
+      eventHandlers:
+        - event: Transfer(indexed address,indexed address,uint256)
+          handler: handleTransfer
+      file: ./target/wasm32-unknown-unknown/release/{name_snake}.wasm
+"#,
+        name = name,
+        network = network,
+        name_snake = name.replace('-', "_")
+    );
+    std::fs::write(project_dir.join("subgraph.yaml"), subgraph_yaml)?;
+    println!("  Created subgraph.yaml");
+
+    // Create schema.graphql
+    let schema = r#"# Example entity - replace with your own schema
+
+type ExampleEntity @entity {
+  id: ID!
+  count: BigInt!
+  sender: Bytes!
+  value: BigInt!
+}
+"#;
+    std::fs::write(project_dir.join("schema.graphql"), schema)?;
+    println!("  Created schema.graphql");
+
+    // Create src/lib.rs
+    let lib_rs = r#"//! Subgraph handlers
+
+mod generated;
+
+use graphite::prelude::*;
+use generated::*;
+
+// Example handler - replace with your own logic
+#[handler]
+pub fn handle_transfer(host: &mut impl HostFunctions, event: &ERC20TransferEvent) {
+    // Load or create entity
+    let id = event.id();
+    let mut entity = ExampleEntity::load(host, &id)
+        .unwrap_or_else(|| ExampleEntity::new(&id));
+
+    // Update fields
+    entity.sender = Bytes::from_slice(event.from.as_slice());
+    entity.value = event.value.clone();
+
+    // Save to store
+    entity.save(host);
+}
+"#;
+    std::fs::write(project_dir.join("src/lib.rs"), lib_rs)?;
+    println!("  Created src/lib.rs");
+
+    // Create placeholder ABI
+    let placeholder_abi = r#"[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "name": "from", "type": "address" },
+      { "indexed": true, "name": "to", "type": "address" },
+      { "indexed": false, "name": "value", "type": "uint256" }
+    ],
+    "name": "Transfer",
+    "type": "event"
+  }
+]"#;
+    std::fs::write(
+        project_dir.join(format!("abis/{}.json", name)),
+        placeholder_abi,
+    )?;
+    println!("  Created abis/{}.json (placeholder)", name);
+
+    // Create .gitignore
+    let gitignore = r#"/target/
+Cargo.lock
+src/generated/
+"#;
+    std::fs::write(project_dir.join(".gitignore"), gitignore)?;
+    println!("  Created .gitignore");
+
+    println!();
+    println!("Project '{}' created successfully!", name);
+    println!();
+    println!("Next steps:");
+    println!("  cd {}", name);
+    println!("  # Add your contract ABI to abis/");
+    println!("  # Update graphite.toml with your contract");
+    println!("  # Edit schema.graphql with your entities");
+    println!("  graphite codegen");
+    println!("  cargo build --release --target wasm32-unknown-unknown");
+
     Ok(())
 }
 
