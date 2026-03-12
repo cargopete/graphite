@@ -1,0 +1,28 @@
+[package]
+name = "graphite"
+description = "Rust SDK for building subgraphs on The Graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["std"]
+std = ["alloy-primitives/std", "num-bigint/std", "serde/std"]
+wasm = []  # Enable when compiling to WASM target
+
+[dependencies]
+graphite-macros = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+insta = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
