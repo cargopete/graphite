@@ -78,16 +78,35 @@ graphite test         # Run tests (delegates to cargo test)
 graphite deploy       # Deploy to graph-node
 ```
 
+## Configuration
+
+Create a `graphite.toml` in your project root:
+
+```toml
+output_dir = "src/generated"
+schema = "schema.graphql"
+
+[[contracts]]
+name = "ERC20"
+abi = "abis/ERC20.json"
+```
+
+Then run `graphite codegen` to generate:
+- Entity structs from your GraphQL schema
+- Event structs from contract ABIs
+
 ## Roadmap
 
 - [x] Core primitives (BigInt, Address, Bytes)
 - [x] HostFunctions trait + MockHost for testing
-- [x] Basic proc macro scaffolding
-- [x] CLI skeleton
-- [ ] Complete `#[derive(Entity)]` macro
-- [ ] ABI → Rust codegen
-- [ ] Schema.graphql → Entity codegen
+- [x] `#[derive(Entity)]` macro with `FromValue` trait
+- [x] ABI → Rust event struct codegen
+- [x] Schema.graphql → Entity struct codegen
+- [x] CLI with `graphite codegen` command
+- [ ] Event decoding (wire up alloy for log parsing)
 - [ ] WASM ABI layer (FFI to graph-node)
+- [ ] `graphite init` scaffolding
+- [ ] `graphite build` WASM compilation
 - [ ] Integration testing with graph-node
 - [ ] Documentation
 

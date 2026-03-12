@@ -134,6 +134,8 @@ struct GraphiteConfig {
     /// Output directory for generated code
     #[serde(default = "default_output_dir")]
     output_dir: PathBuf,
+    /// Path to GraphQL schema file
+    schema: Option<PathBuf>,
     /// Contract definitions
     #[serde(default)]
     contracts: Vec<ContractConfig>,
@@ -165,6 +167,22 @@ fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
     // Generate mod.rs for the generated module
     let mut mod_contents = String::from("//! Generated code — do not edit.\n\n");
 
+    // Generate schema entities if specified
+    if let Some(ref schema_path) = config.schema {
+        println!("  Generating entities from schema...");
+
+        let code = codegen::generate_schema_entities(schema_path)
+            .with_context(|| format!("Failed to generate entities from {}", schema_path.display()))?;
+
+        let output_path = config.output_dir.join("schema.rs");
+        std::fs::write(&output_path, &code)
+            .with_context(|| format!("Failed to write {}", output_path.display()))?;
+
+        mod_contents.push_str("mod schema;\npub use schema::*;\n\n");
+        println!("    → {}", output_path.display());
+    }
+
+    // Generate contract bindings
     for contract in &config.contracts {
         println!("  Generating bindings for {}...", contract.name);
 

@@ -1,0 +1,51 @@
+# GraphQL schema for ERC20 token tracking
+
+type Token @entity {
+  "Token contract address"
+  id: ID!
+  "Token symbol (e.g., USDC)"
+  symbol: String!
+  "Token name (e.g., USD Coin)"
+  name: String!
+  "Number of decimals"
+  decimals: Int!
+  "Total supply"
+  totalSupply: BigInt!
+}
+
+type Account @entity {
+  "Account address"
+  id: ID!
+  "Token balances for this account"
+  balances: [TokenBalance!]!
+}
+
+type TokenBalance @entity {
+  "account-token"
+  id: ID!
+  "The account"
+  account: Account!
+  "The token"
+  token: Token!
+  "Current balance"
+  balance: BigInt!
+}
+
+type Transfer @entity {
+  "tx_hash-log_index"
+  id: ID!
+  "Token being transferred"
+  token: Token!
+  "Sender address"
+  from: Bytes!
+  "Recipient address"
+  to: Bytes!
+  "Amount transferred"
+  value: BigInt!
+  "Block number"
+  blockNumber: BigInt!
+  "Block timestamp"
+  timestamp: BigInt!
+  "Transaction hash"
+  transactionHash: Bytes!
+}
