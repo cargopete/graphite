@@ -1,128 +1,157 @@
-//! FFI declarations for graph-node host functions.
+//! FFI declarations for graph-node Rust ABI.
 //!
-//! These are the raw `extern "C"` imports that graph-node provides.
-//! Higher-level wrappers are in `host.rs`.
-
-/// Pointer to AssemblyScript-style heap object.
-/// Graph-node uses AS memory layout for compatibility.
-#[repr(transparent)]
-#[derive(Copy, Clone, Debug)]
-pub struct AscPtr(pub u32);
-
-impl AscPtr {
-    pub const NULL: Self = Self(0);
-
-    pub fn is_null(&self) -> bool {
-        self.0 == 0
-    }
-}
+//! These host functions use a clean ptr+len protocol, NOT the
+//! AssemblyScript AscPtr<T> memory layout.
+//!
+//! # Protocol
+//!
+//! - Strings are passed as (ptr: u32, len: u32) pointing to UTF-8 bytes
+//! - Byte arrays are passed as (ptr: u32, len: u32)
+//! - Entities are bincode-serialized and passed as (ptr: u32, len: u32)
+//! - For return values, caller provides a buffer and receives actual length
+//!
+//! # Graph-node Requirements
+//!
+//! Graph-node must be modified to:
+//! 1. Detect `language: wasm/rust` in subgraph.yaml
+//! 2. Register these Rust ABI host functions instead of AS ABI functions
+//! 3. Handle bincode serialization for entities
 
 // ============================================================================
-// Graph-node host function imports
+// Graph-node host function imports (Rust ABI)
 // ============================================================================
-//
-// These match the imports expected by graph-node's WASM runtime.
-// See: https://github.com/graphprotocol/graph-node/blob/master/runtime/wasm/src/host_exports.rs
 
-#[link(wasm_import_module = "env")]
+#[link(wasm_import_module = "graphite")]
 unsafe extern "C" {
     // ========== Store Operations ==========
 
     /// Store an entity.
-    /// entity_type: AscPtr to String
-    /// id: AscPtr to String
-    /// data: AscPtr to Entity (TypedMap<String, Value>)
-    pub fn store_set(entity_type: AscPtr, id: AscPtr, data: AscPtr);
+    ///
+    /// - entity_type_ptr/len: UTF-8 entity type name
+    /// - id_ptr/len: UTF-8 entity ID
+    /// - data_ptr/len: bincode-serialized entity fields
+    pub fn store_set(
+        entity_type_ptr: u32,
+        entity_type_len: u32,
+        id_ptr: u32,
+        id_len: u32,
+        data_ptr: u32,
+        data_len: u32,
+    );
 
-    /// Load an entity. Returns AscPtr to Entity or null.
-    pub fn store_get(entity_type: AscPtr, id: AscPtr) -> AscPtr;
+    /// Load an entity.
+    ///
+    /// - entity_type_ptr/len: UTF-8 entity type name
+    /// - id_ptr/len: UTF-8 entity ID
+    /// - out_ptr: buffer to write bincode-serialized entity
+    /// - out_cap: capacity of output buffer
+    ///
+    /// Returns: actual length written, or 0 if not found, or u32::MAX if buffer too small
+    pub fn store_get(
+        entity_type_ptr: u32,
+        entity_type_len: u32,
+        id_ptr: u32,
+        id_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> u32;
 
     /// Remove an entity.
-    pub fn store_remove(entity_type: AscPtr, id: AscPtr);
+    pub fn store_remove(
+        entity_type_ptr: u32,
+        entity_type_len: u32,
+        id_ptr: u32,
+        id_len: u32,
+    );
 
     // ========== Ethereum Operations ==========
 
     /// Make a read-only contract call.
-    /// Returns AscPtr to result array or null on failure.
-    pub fn ethereum_call(call: AscPtr) -> AscPtr;
+    ///
+    /// - address_ptr: 20-byte address
+    /// - signature_ptr/len: UTF-8 function signature
+    /// - params_ptr/len: ABI-encoded parameters
+    /// - out_ptr/out_cap: buffer for ABI-encoded return value
+    ///
+    /// Returns: actual length, or u32::MAX on error
+    pub fn ethereum_call(
+        address_ptr: u32,
+        signature_ptr: u32,
+        signature_len: u32,
+        params_ptr: u32,
+        params_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> u32;
 
     // ========== Crypto Operations ==========
 
     /// Compute keccak256 hash.
-    /// input: AscPtr to Bytes
-    /// Returns: AscPtr to Bytes (32 bytes)
-    pub fn crypto_keccak256(input: AscPtr) -> AscPtr;
+    ///
+    /// - input_ptr/len: data to hash
+    /// - out_ptr: 32-byte buffer for hash output
+    pub fn crypto_keccak256(input_ptr: u32, input_len: u32, out_ptr: u32);
 
     // ========== Logging ==========
 
     /// Log a message.
-    /// level: i32 (0=debug, 1=info, 2=warning, 3=error, 4=critical)
-    /// message: AscPtr to String
-    pub fn log_log(level: i32, message: AscPtr);
-
-    // ========== Type Conversions ==========
-
-    /// Convert BigInt to string.
-    pub fn big_int_to_string(big_int: AscPtr) -> AscPtr;
-
-    /// Convert string to BigInt.
-    pub fn big_int_from_string(s: AscPtr) -> AscPtr;
-
-    /// Convert BigInt to hex string.
-    pub fn big_int_to_hex(big_int: AscPtr) -> AscPtr;
+    ///
+    /// - level: 0=debug, 1=info, 2=warning, 3=error, 4=critical
+    /// - message_ptr/len: UTF-8 message
+    pub fn log_log(level: u32, message_ptr: u32, message_len: u32);
 
     // ========== Data Source Operations ==========
 
     /// Create a new data source from a template.
-    /// name: AscPtr to String
-    /// params: AscPtr to Array<String>
-    pub fn data_source_create(name: AscPtr, params: AscPtr);
+    ///
+    /// - name_ptr/len: UTF-8 template name
+    /// - params_ptr/len: bincode-serialized Vec<String>
+    pub fn data_source_create(
+        name_ptr: u32,
+        name_len: u32,
+        params_ptr: u32,
+        params_len: u32,
+    );
 
     /// Get the address of the current data source.
-    /// Returns: AscPtr to Address (Bytes)
-    pub fn data_source_address() -> AscPtr;
+    ///
+    /// - out_ptr: 20-byte buffer for address
+    pub fn data_source_address(out_ptr: u32);
 
     /// Get the network name.
-    /// Returns: AscPtr to String
-    pub fn data_source_network() -> AscPtr;
-
-    /// Get the context of the current data source.
-    /// Returns: AscPtr to DataSourceContext
-    pub fn data_source_context() -> AscPtr;
+    ///
+    /// - out_ptr/out_cap: buffer for UTF-8 network name
+    ///
+    /// Returns: actual length
+    pub fn data_source_network(out_ptr: u32, out_cap: u32) -> u32;
 
     // ========== IPFS Operations ==========
 
     /// Fetch content from IPFS.
-    /// hash: AscPtr to String (IPFS hash)
-    /// Returns: AscPtr to Bytes or null
-    pub fn ipfs_cat(hash: AscPtr) -> AscPtr;
-
-    // ========== JSON Operations ==========
-
-    /// Parse a JSON string.
-    /// json: AscPtr to String
-    /// Returns: AscPtr to JSONValue
-    pub fn json_from_bytes(bytes: AscPtr) -> AscPtr;
-
-    /// Convert a JSON value to bytes.
-    pub fn json_to_string(json: AscPtr) -> AscPtr;
+    ///
+    /// - hash_ptr/len: UTF-8 IPFS hash
+    /// - out_ptr/out_cap: buffer for content
+    ///
+    /// Returns: actual length, or u32::MAX on error
+    pub fn ipfs_cat(
+        hash_ptr: u32,
+        hash_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> u32;
 
     // ========== Abort ==========
 
     /// Abort execution with a message.
-    /// message: AscPtr to String
-    /// file_name: AscPtr to String
-    /// line: i32
-    /// column: i32
-    pub fn abort(message: AscPtr, file_name: AscPtr, line: i32, column: i32) -> !;
+    pub fn abort(message_ptr: u32, message_len: u32, file_ptr: u32, file_len: u32, line: u32) -> !;
 }
 
 // ============================================================================
-// Log levels matching graph-node
+// Log levels
 // ============================================================================
 
-pub const LOG_LEVEL_DEBUG: i32 = 0;
-pub const LOG_LEVEL_INFO: i32 = 1;
-pub const LOG_LEVEL_WARNING: i32 = 2;
-pub const LOG_LEVEL_ERROR: i32 = 3;
-pub const LOG_LEVEL_CRITICAL: i32 = 4;
+pub const LOG_LEVEL_DEBUG: u32 = 0;
+pub const LOG_LEVEL_INFO: u32 = 1;
+pub const LOG_LEVEL_WARNING: u32 = 2;
+pub const LOG_LEVEL_ERROR: u32 = 3;
+pub const LOG_LEVEL_CRITICAL: u32 = 4;

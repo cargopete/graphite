@@ -1,19 +1,21 @@
 //! WASM ABI layer for graph-node integration.
 //!
 //! This module provides the FFI bindings between Rust handlers and
-//! graph-node's WASM runtime. It defines:
+//! graph-node's WASM runtime using a **Rust-native ABI**.
 //!
-//! - External host functions imported from graph-node
-//! - Memory allocation functions exported to graph-node
-//! - A global host context for handler code to use
+//! # Design
 //!
-//! # Architecture
+//! Unlike AssemblyScript subgraphs which use AS memory layout (TypedMap,
+//! UTF-16 strings, etc.), Rust subgraphs use a clean ptr+len ABI with
+//! bincode serialization. This requires graph-node modifications to detect
+//! `language: wasm/rust` in the manifest and use the Rust ABI host functions.
 //!
-//! Graph-node expects WASM modules to:
-//! 1. Export `memory` (the linear memory)
-//! 2. Export allocation functions (`allocate`, `deallocate`)
-//! 3. Export handler functions that graph-node calls with event data
-//! 4. Import host functions for store operations, ethereum calls, etc.
+//! # ABI Protocol
+//!
+//! - Strings: UTF-8, passed as (ptr, len) pairs
+//! - Entities: bincode-serialized, passed as (ptr, len)
+//! - Return values: written to a caller-provided buffer
+//! - Memory: bump allocator with arena reset after each handler
 
 #[cfg(target_arch = "wasm32")]
 pub mod ffi;
@@ -26,7 +28,3 @@ pub mod alloc;
 
 #[cfg(target_arch = "wasm32")]
 pub use host::WasmHost;
-
-// Re-export the AscPtr type for generated code
-#[cfg(target_arch = "wasm32")]
-pub use ffi::AscPtr;

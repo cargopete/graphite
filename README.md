@@ -2,17 +2,43 @@
 
 A Rust SDK for building subgraphs on [The Graph](https://thegraph.com/).
 
-**Status:** Early development — not yet ready for production use.
+**Status:** Early development — requires graph-node modifications (see Architecture).
 
 ## Why Graphite?
 
-AssemblyScript subgraphs suffer from broken nullable handling, missing closures, opaque compiler crashes, and a hostile debugging experience. Graphite aims to provide a proper Rust alternative with:
+AssemblyScript subgraphs suffer from broken nullable handling, missing closures, opaque compiler crashes, and a hostile debugging experience. Graphite provides a proper Rust alternative with:
 
 - **Type safety** — `Option<T>` instead of runtime null crashes
 - **Ergonomic APIs** — `#[derive(Entity)]` and `#[handler]` macros
 - **Native testing** — `cargo test` with mock host functions, no PostgreSQL required
 - **Rust ecosystem** — iterators, closures, and crates that actually work
 - **~2× performance** — Rust WASM is faster than AssemblyScript
+
+## Architecture
+
+Graphite does **not** try to conform to AssemblyScript's memory layout. Instead, it defines a clean Rust-native ABI that requires modifications to graph-node:
+
+```
+                    ┌─────────────────────────┐
+                    │    HostExports<C>       │  ← Language-agnostic (unchanged)
+                    │  (store, crypto, ipfs)  │
+                    └────────────┬────────────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              │                                     │
+    ┌─────────┴─────────┐             ┌─────────────┴────────────┐
+    │  AscAbiHost       │             │  RustAbiHost             │
+    │  (current code)   │             │  (new, in graph-node)    │
+    │  AscPtr<T>        │             │  ptr+len, simple serde   │
+    └───────────────────┘             └──────────────────────────┘
+```
+
+**Graph-node changes required:**
+1. Detect `language: wasm/rust` in subgraph.yaml manifest
+2. Add `RustAbiHost` with ptr+len FFI protocol
+3. Use simple serialization (not AS TypedMap)
+
+See [rfc-rust-subgraph.md](./rfc-rust-subgraph.md) for the full design.
 
 ## Project Structure
 
@@ -38,30 +64,25 @@ pub struct Transfer {
 }
 
 #[handler]
-pub fn handle_transfer(event: TransferEvent) {
+pub fn handle_transfer(host: &mut impl HostFunctions, event: &TransferEvent) {
     let mut transfer = Transfer::new(&event.id());
-    transfer.from = event.params.from;
-    transfer.to = event.params.to;
-    transfer.value = event.params.value.into();
-    transfer.save();
+    transfer.from = event.from;
+    transfer.to = event.to;
+    transfer.value = event.value.clone();
+    transfer.save(host);
 }
 ```
 
-## Testing
+## Testing (works today)
 
-Handlers run natively with `MockHost` — no WASM compilation needed:
+Handlers run natively with `MockHost` — no WASM, no graph-node needed:
 
 ```rust
 #[test]
 fn transfer_creates_entity() {
     let mut host = MockHost::default();
 
-    let event = TransferEvent::mock()
-        .from(addr("0xaaaa..."))
-        .to(addr("0xbbbb..."))
-        .value(1000u64)
-        .build();
-
+    let event = TransferEvent { /* ... */ };
     handle_transfer(&mut host, &event);
 
     assert_eq!(host.store.entity_count("Transfer"), 1);
@@ -71,11 +92,10 @@ fn transfer_creates_entity() {
 ## CLI Usage
 
 ```bash
-graphite init my-subgraph --from-contract 0x... --network mainnet
+graphite init my-subgraph --network mainnet
 graphite codegen      # Generate Rust types from ABI + schema
 graphite build        # Compile to WASM
 graphite test         # Run tests (delegates to cargo test)
-graphite deploy       # Deploy to graph-node
 ```
 
 ## Configuration
@@ -91,29 +111,25 @@ name = "ERC20"
 abi = "abis/ERC20.json"
 ```
 
-Then run `graphite codegen` to generate:
-- Entity structs from your GraphQL schema
-- Event structs from contract ABIs
+## Status
 
-## Roadmap
+### SDK (this repo) — mostly complete
 
 - [x] Core primitives (BigInt, Address, Bytes)
-- [x] HostFunctions trait + MockHost for testing
-- [x] `#[derive(Entity)]` macro with `FromValue` trait
-- [x] ABI → Rust event struct codegen
+- [x] `HostFunctions` trait + `MockHost` for native testing
+- [x] `#[derive(Entity)]` macro with load/save/remove
+- [x] ABI → Rust event struct codegen with `EventDecode`
 - [x] Schema.graphql → Entity struct codegen
-- [x] CLI with `graphite codegen` command
-- [x] Event decoding (`EventDecode` trait + decode helpers)
-- [x] WASM ABI layer (FFI to graph-node)
-- [x] `graphite init` scaffolding
-- [x] `graphite build` WASM compilation (with wasm-opt if available)
-- [ ] Full AS memory marshalling (Entity serialization)
-- [ ] Integration testing with graph-node
-- [ ] Documentation
+- [x] CLI: `init`, `codegen`, `build`, `test`
+- [x] WASM ABI layer (Rust-native protocol, not AS)
 
-## Design
+### Graph-node modifications — not started
 
-See [rfc-rust-subgraph.md](./rfc-rust-subgraph.md) for the full design document.
+- [ ] Parse `language: wasm/rust` in manifest
+- [ ] Add `RustAbiHost` runtime variant
+- [ ] Implement ptr+len host function bindings
+- [ ] Entity serialization (SDK ↔ graph-node)
+- [ ] Integration testing
 
 ## License
 

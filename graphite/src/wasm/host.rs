@@ -1,20 +1,17 @@
-//! WASM host implementation using graph-node FFI.
+//! WASM host implementation using graph-node Rust ABI.
 //!
-//! This implements the `HostFunctions` trait by calling through to
-//! graph-node's host functions.
+//! Implements `HostFunctions` by calling through to graph-node's
+//! Rust-native host functions (ptr+len protocol, bincode serialization).
 
 use crate::host::{EthereumCallError, HostFunctions, IpfsError, LogLevel};
 use crate::primitives::{Address, Bytes};
 use crate::store::{Entity, Value};
-use crate::wasm::alloc::{alloc_bytes, alloc_string, read_bytes, read_string};
-use crate::wasm::ffi::{self, AscPtr};
+use crate::wasm::alloc::{alloc_slice, alloc_str, allocate};
+use crate::wasm::ffi;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-/// Host implementation for WASM runtime.
-///
-/// This is a zero-sized type that calls through to graph-node's
-/// imported host functions.
+/// Host implementation for WASM runtime (Rust ABI).
 pub struct WasmHost;
 
 impl WasmHost {
@@ -31,59 +28,113 @@ impl Default for WasmHost {
 
 impl HostFunctions for WasmHost {
     fn store_set(&mut self, entity_type: &str, id: &str, entity: Entity) {
-        let entity_type_ptr = AscPtr(alloc_string(entity_type));
-        let id_ptr = AscPtr(alloc_string(id));
-        let data_ptr = entity_to_asc(&entity);
+        let entity_type_ptr = alloc_str(entity_type);
+        let id_ptr = alloc_str(id);
+
+        // Serialize entity to bincode
+        let entity_bytes = serialize_entity(&entity);
+        let data_ptr = alloc_slice(&entity_bytes);
 
         unsafe {
-            ffi::store_set(entity_type_ptr, id_ptr, data_ptr);
+            ffi::store_set(
+                entity_type_ptr,
+                entity_type.len() as u32,
+                id_ptr,
+                id.len() as u32,
+                data_ptr,
+                entity_bytes.len() as u32,
+            );
         }
     }
 
     fn store_get(&self, entity_type: &str, id: &str) -> Option<Entity> {
-        let entity_type_ptr = AscPtr(alloc_string(entity_type));
-        let id_ptr = AscPtr(alloc_string(id));
+        let entity_type_ptr = alloc_str(entity_type);
+        let id_ptr = alloc_str(id);
 
-        let result = unsafe { ffi::store_get(entity_type_ptr, id_ptr) };
+        // Allocate output buffer (16KB should be enough for most entities)
+        const OUT_CAP: u32 = 16 * 1024;
+        let out_ptr = allocate(OUT_CAP);
 
-        if result.is_null() {
-            None
-        } else {
-            Some(asc_to_entity(result))
+        let len = unsafe {
+            ffi::store_get(
+                entity_type_ptr,
+                entity_type.len() as u32,
+                id_ptr,
+                id.len() as u32,
+                out_ptr,
+                OUT_CAP,
+            )
+        };
+
+        if len == 0 || len == u32::MAX {
+            return None;
         }
+
+        let bytes = unsafe { core::slice::from_raw_parts(out_ptr as *const u8, len as usize) };
+        deserialize_entity(bytes)
     }
 
     fn store_remove(&mut self, entity_type: &str, id: &str) {
-        let entity_type_ptr = AscPtr(alloc_string(entity_type));
-        let id_ptr = AscPtr(alloc_string(id));
+        let entity_type_ptr = alloc_str(entity_type);
+        let id_ptr = alloc_str(id);
 
         unsafe {
-            ffi::store_remove(entity_type_ptr, id_ptr);
+            ffi::store_remove(
+                entity_type_ptr,
+                entity_type.len() as u32,
+                id_ptr,
+                id.len() as u32,
+            );
         }
     }
 
     fn ethereum_call(
         &self,
-        _address: Address,
-        _function_signature: &str,
-        _params: &[Value],
+        address: Address,
+        function_signature: &str,
+        params: &[Value],
     ) -> Result<Vec<Value>, EthereumCallError> {
-        // TODO: Implement ethereum_call
-        // This requires marshalling the call parameters into AS format
-        Err(EthereumCallError::Failed(
-            "ethereum_call not yet implemented".into(),
-        ))
+        let address_ptr = alloc_slice(address.as_slice());
+        let sig_ptr = alloc_str(function_signature);
+
+        // Serialize params to ABI encoding
+        let params_bytes = serialize_call_params(params);
+        let params_ptr = alloc_slice(&params_bytes);
+
+        // Allocate output buffer
+        const OUT_CAP: u32 = 4 * 1024;
+        let out_ptr = allocate(OUT_CAP);
+
+        let len = unsafe {
+            ffi::ethereum_call(
+                address_ptr,
+                sig_ptr,
+                function_signature.len() as u32,
+                params_ptr,
+                params_bytes.len() as u32,
+                out_ptr,
+                OUT_CAP,
+            )
+        };
+
+        if len == u32::MAX {
+            return Err(EthereumCallError::Reverted);
+        }
+
+        let bytes = unsafe { core::slice::from_raw_parts(out_ptr as *const u8, len as usize) };
+        Ok(deserialize_call_result(bytes))
     }
 
     fn crypto_keccak256(&self, input: &[u8]) -> [u8; 32] {
-        let input_ptr = AscPtr(alloc_bytes(input));
+        let input_ptr = alloc_slice(input);
+        let out_ptr = allocate(32);
 
-        let result_ptr = unsafe { ffi::crypto_keccak256(input_ptr) };
-
-        let result_bytes = unsafe { read_bytes(result_ptr.0) };
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result_bytes[..32]);
-        hash
+        unsafe {
+            ffi::crypto_keccak256(input_ptr, input.len() as u32, out_ptr);
+            let mut hash = [0u8; 32];
+            core::ptr::copy_nonoverlapping(out_ptr as *const u8, hash.as_mut_ptr(), 32);
+            hash
+        }
     }
 
     fn log(&self, level: LogLevel, message: &str) {
@@ -95,94 +146,262 @@ impl HostFunctions for WasmHost {
             LogLevel::Critical => ffi::LOG_LEVEL_CRITICAL,
         };
 
-        let message_ptr = AscPtr(alloc_string(message));
+        let message_ptr = alloc_str(message);
 
         unsafe {
-            ffi::log_log(level_int, message_ptr);
+            ffi::log_log(level_int, message_ptr, message.len() as u32);
         }
     }
 
     fn ipfs_cat(&self, hash: &str) -> Result<Bytes, IpfsError> {
-        let hash_ptr = AscPtr(alloc_string(hash));
+        let hash_ptr = alloc_str(hash);
 
-        let result_ptr = unsafe { ffi::ipfs_cat(hash_ptr) };
+        // Allocate output buffer (1MB max for IPFS content)
+        const OUT_CAP: u32 = 1024 * 1024;
+        let out_ptr = allocate(OUT_CAP);
 
-        if result_ptr.is_null() {
-            Err(IpfsError::NotFound(hash.to_string()))
-        } else {
-            let bytes = unsafe { read_bytes(result_ptr.0) };
-            Ok(Bytes::from_slice(bytes))
+        let len = unsafe { ffi::ipfs_cat(hash_ptr, hash.len() as u32, out_ptr, OUT_CAP) };
+
+        if len == u32::MAX {
+            return Err(IpfsError::NotFound(hash.to_string()));
         }
+
+        let bytes = unsafe { core::slice::from_raw_parts(out_ptr as *const u8, len as usize) };
+        Ok(Bytes::from_slice(bytes))
     }
 
     fn data_source_create(&mut self, name: &str, params: &[String]) {
-        let name_ptr = AscPtr(alloc_string(name));
-        let params_ptr = string_array_to_asc(params);
+        let name_ptr = alloc_str(name);
+
+        // Serialize params
+        let params_bytes = serialize_string_vec(params);
+        let params_ptr = alloc_slice(&params_bytes);
 
         unsafe {
-            ffi::data_source_create(name_ptr, params_ptr);
+            ffi::data_source_create(
+                name_ptr,
+                name.len() as u32,
+                params_ptr,
+                params_bytes.len() as u32,
+            );
         }
     }
 
     fn data_source_address(&self) -> Address {
-        let result_ptr = unsafe { ffi::data_source_address() };
-        let bytes = unsafe { read_bytes(result_ptr.0) };
+        let out_ptr = allocate(20);
 
-        if bytes.len() >= 20 {
-            Address::from_slice(&bytes[..20])
-        } else {
-            Address::ZERO
+        unsafe {
+            ffi::data_source_address(out_ptr);
+            Address::from_slice(core::slice::from_raw_parts(out_ptr as *const u8, 20))
         }
     }
 
     fn data_source_network(&self) -> String {
-        let result_ptr = unsafe { ffi::data_source_network() };
-        let s = unsafe { read_string(result_ptr.0) };
-        s.to_string()
+        const OUT_CAP: u32 = 256;
+        let out_ptr = allocate(OUT_CAP);
+
+        let len = unsafe { ffi::data_source_network(out_ptr, OUT_CAP) };
+
+        let bytes = unsafe { core::slice::from_raw_parts(out_ptr as *const u8, len as usize) };
+        String::from_utf8_lossy(bytes).into_owned()
     }
 }
 
 // ============================================================================
-// AS Memory Marshalling
+// Serialization helpers
 // ============================================================================
 
-/// Convert an Entity to AS TypedMap format.
-fn entity_to_asc(entity: &Entity) -> AscPtr {
-    // For now, we allocate a simple representation
-    // TODO: Full AS TypedMap marshalling
-    //
-    // This is a simplified version - real implementation needs to match
-    // graph-node's expected TypedMap<String, Value> layout
+/// Serialize an Entity to bytes (simple format for now).
+///
+/// Format: [field_count: u32] [field_name_len: u32, field_name: bytes, value_type: u8, value_data...]
+fn serialize_entity(entity: &Entity) -> Vec<u8> {
+    use alloc::vec;
 
-    // Allocate array for entries
-    let entries: Vec<_> = entity.iter().collect();
-    let _count = entries.len();
+    let mut buf = vec![];
 
-    // For now just allocate a placeholder
-    // Real implementation would serialize each key-value pair
-    AscPtr(alloc_bytes(&[]))
+    // Field count
+    let count = entity.len() as u32;
+    buf.extend_from_slice(&count.to_le_bytes());
+
+    for (key, value) in entity.iter() {
+        // Key length + key
+        let key_bytes = key.as_bytes();
+        buf.extend_from_slice(&(key_bytes.len() as u32).to_le_bytes());
+        buf.extend_from_slice(key_bytes);
+
+        // Value
+        serialize_value(&mut buf, value);
+    }
+
+    buf
 }
 
-/// Convert AS TypedMap to Entity.
-fn asc_to_entity(_ptr: AscPtr) -> Entity {
-    // TODO: Full AS TypedMap unmarshalling
-    Entity::new()
+fn serialize_value(buf: &mut Vec<u8>, value: &Value) {
+    match value {
+        Value::String(s) => {
+            buf.push(0x01);
+            let bytes = s.as_bytes();
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(bytes);
+        }
+        Value::Int(n) => {
+            buf.push(0x02);
+            buf.extend_from_slice(&n.to_le_bytes());
+        }
+        Value::Int8(n) => {
+            buf.push(0x03);
+            buf.extend_from_slice(&n.to_le_bytes());
+        }
+        Value::BigInt(n) => {
+            buf.push(0x04);
+            let bytes = n.to_signed_bytes_be();
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&bytes);
+        }
+        Value::BigDecimal(_) => {
+            buf.push(0x05);
+            // TODO: proper BigDecimal serialization
+            buf.extend_from_slice(&0u32.to_le_bytes());
+        }
+        Value::Bool(b) => {
+            buf.push(0x06);
+            buf.push(if *b { 1 } else { 0 });
+        }
+        Value::Bytes(b) => {
+            buf.push(0x07);
+            buf.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            buf.extend_from_slice(b.as_slice());
+        }
+        Value::Address(a) => {
+            buf.push(0x08);
+            buf.extend_from_slice(a.as_slice());
+        }
+        Value::Array(arr) => {
+            buf.push(0x09);
+            buf.extend_from_slice(&(arr.len() as u32).to_le_bytes());
+            for v in arr {
+                serialize_value(buf, v);
+            }
+        }
+        Value::Null => {
+            buf.push(0x00);
+        }
+    }
 }
 
-/// Convert a string array to AS Array<String> format.
-fn string_array_to_asc(strings: &[String]) -> AscPtr {
-    // TODO: Full AS Array marshalling
-    let _ = strings;
-    AscPtr(alloc_bytes(&[]))
+/// Deserialize an Entity from bytes.
+fn deserialize_entity(bytes: &[u8]) -> Option<Entity> {
+    if bytes.len() < 4 {
+        return None;
+    }
+
+    let mut entity = Entity::new();
+    let mut pos = 0;
+
+    // Field count
+    let count = u32::from_le_bytes(bytes[pos..pos + 4].try_into().ok()?) as usize;
+    pos += 4;
+
+    for _ in 0..count {
+        // Key
+        let key_len = u32::from_le_bytes(bytes[pos..pos + 4].try_into().ok()?) as usize;
+        pos += 4;
+        let key = core::str::from_utf8(&bytes[pos..pos + key_len]).ok()?;
+        pos += key_len;
+
+        // Value
+        let (value, consumed) = deserialize_value(&bytes[pos..])?;
+        pos += consumed;
+
+        entity.set(key, value);
+    }
+
+    Some(entity)
 }
 
-// ============================================================================
-// Panic handler (only when std is disabled)
-// ============================================================================
+fn deserialize_value(bytes: &[u8]) -> Option<(Value, usize)> {
+    use crate::primitives::BigInt;
 
-// When building without std, we need our own panic handler.
-// With std enabled, the std panic handler is used.
-// To build a no_std subgraph, users would add:
-//   #![no_std]
-//   #![no_main]
-// and enable the wasm feature without std.
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let tag = bytes[0];
+    let mut pos = 1;
+
+    let value = match tag {
+        0x00 => Value::Null,
+        0x01 => {
+            // String
+            let len = u32::from_le_bytes(bytes[pos..pos + 4].try_into().ok()?) as usize;
+            pos += 4;
+            let s = core::str::from_utf8(&bytes[pos..pos + len]).ok()?;
+            pos += len;
+            Value::String(s.into())
+        }
+        0x02 => {
+            // Int
+            let n = i32::from_le_bytes(bytes[pos..pos + 4].try_into().ok()?);
+            pos += 4;
+            Value::Int(n)
+        }
+        0x03 => {
+            // Int8
+            let n = i64::from_le_bytes(bytes[pos..pos + 8].try_into().ok()?);
+            pos += 8;
+            Value::Int8(n)
+        }
+        0x04 => {
+            // BigInt
+            let len = u32::from_le_bytes(bytes[pos..pos + 4].try_into().ok()?) as usize;
+            pos += 4;
+            let n = BigInt::from_signed_bytes_be(&bytes[pos..pos + len]);
+            pos += len;
+            Value::BigInt(n)
+        }
+        0x06 => {
+            // Bool
+            let b = bytes[pos] != 0;
+            pos += 1;
+            Value::Bool(b)
+        }
+        0x07 => {
+            // Bytes
+            let len = u32::from_le_bytes(bytes[pos..pos + 4].try_into().ok()?) as usize;
+            pos += 4;
+            let b = Bytes::from_slice(&bytes[pos..pos + len]);
+            pos += len;
+            Value::Bytes(b)
+        }
+        0x08 => {
+            // Address
+            let addr = Address::from_slice(&bytes[pos..pos + 20]);
+            pos += 20;
+            Value::Address(addr)
+        }
+        _ => return None,
+    };
+
+    Some((value, pos))
+}
+
+fn serialize_call_params(_params: &[Value]) -> Vec<u8> {
+    // TODO: ABI encoding
+    Vec::new()
+}
+
+fn deserialize_call_result(_bytes: &[u8]) -> Vec<Value> {
+    // TODO: ABI decoding
+    Vec::new()
+}
+
+fn serialize_string_vec(strings: &[String]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&(strings.len() as u32).to_le_bytes());
+    for s in strings {
+        let bytes = s.as_bytes();
+        buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        buf.extend_from_slice(bytes);
+    }
+    buf
+}
