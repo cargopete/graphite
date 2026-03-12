@@ -32,6 +32,7 @@
 
 extern crate alloc;
 
+pub mod decode;
 pub mod host;
 pub mod primitives;
 pub mod store;
@@ -39,6 +40,7 @@ pub mod testing;
 
 /// Prelude module — import everything you need with `use graphite::prelude::*`
 pub mod prelude {
+    pub use crate::decode::{DecodeError, EventDecode, RawLog};
     pub use crate::host::HostFunctions;
     pub use crate::primitives::{Address, BigDecimal, BigInt, Bytes, B256, U256};
     pub use crate::store::{Entity, FromValue, Store, Value};

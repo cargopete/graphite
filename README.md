@@ -103,7 +103,7 @@ Then run `graphite codegen` to generate:
 - [x] ABI → Rust event struct codegen
 - [x] Schema.graphql → Entity struct codegen
 - [x] CLI with `graphite codegen` command
-- [ ] Event decoding (wire up alloy for log parsing)
+- [x] Event decoding (`EventDecode` trait + decode helpers)
 - [ ] WASM ABI layer (FFI to graph-node)
 - [ ] `graphite init` scaffolding
 - [ ] `graphite build` WASM compilation

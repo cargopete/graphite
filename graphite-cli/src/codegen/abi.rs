@@ -99,15 +99,173 @@ fn generate_event_struct(event: &Event, contract_name: &str) -> Result<String> {
     )?;
     writeln!(output, "    }}")?;
 
-    // Event topic (selector)
-    let selector = event.selector();
+    // from_raw_log constructor
     writeln!(output)?;
-    writeln!(output, "    /// The event topic (keccak256 of signature).")?;
-    writeln!(output, "    pub const SELECTOR: [u8; 32] = {:?};", selector.0)?;
+    writeln!(output, "    /// Decode from a raw log.")?;
+    writeln!(output, "    pub fn from_raw_log(log: &RawLog) -> Result<Self, DecodeError> {{")?;
+    writeln!(output, "        <Self as EventDecode>::decode(&log.topics, log.data.as_slice())")?;
+    writeln!(output, "            .map(|mut e| {{")?;
+    writeln!(output, "                e.tx_hash = log.tx_hash;")?;
+    writeln!(output, "                e.log_index = BigInt::from(log.log_index);")?;
+    writeln!(output, "                e.block_number = BigInt::from(log.block_number);")?;
+    writeln!(output, "                e.block_timestamp = BigInt::from(log.block_timestamp);")?;
+    writeln!(output, "                e.address = log.address;")?;
+    writeln!(output, "                e")?;
+    writeln!(output, "            }})")?;
+    writeln!(output, "    }}")?;
 
+    writeln!(output, "}}")?;
+    writeln!(output)?;
+
+    // Generate EventDecode implementation
+    let decode_impl = generate_event_decode_impl(event, &struct_name)?;
+    output.push_str(&decode_impl);
+
+    Ok(output)
+}
+
+/// Generate EventDecode trait implementation for an event.
+fn generate_event_decode_impl(event: &Event, struct_name: &str) -> Result<String> {
+    let mut output = String::new();
+    let selector = event.selector();
+
+    // Separate indexed params (non-indexed are decoded from data)
+    let indexed_params: Vec<_> = event.inputs.iter().filter(|p| p.indexed).collect();
+
+    // Expected number of topics: 1 (selector) + indexed params
+    let expected_topics = 1 + indexed_params.len();
+
+    writeln!(output, "impl EventDecode for {} {{", struct_name)?;
+    writeln!(output, "    const SELECTOR: [u8; 32] = {:?};", selector.0)?;
+    writeln!(output)?;
+    writeln!(output, "    fn decode(topics: &[B256], data: &[u8]) -> Result<Self, DecodeError> {{")?;
+
+    // Check selector
+    writeln!(output, "        // Verify selector")?;
+    writeln!(output, "        if topics.is_empty() || topics[0].0 != Self::SELECTOR {{")?;
+    writeln!(output, "            return Err(DecodeError::SelectorMismatch {{")?;
+    writeln!(output, "                expected: Self::SELECTOR,")?;
+    writeln!(output, "                got: topics.first().map(|t| t.0).unwrap_or([0; 32]),")?;
+    writeln!(output, "            }});")?;
+    writeln!(output, "        }}")?;
+    writeln!(output)?;
+
+    // Check topic count
+    writeln!(output, "        // Verify topic count")?;
+    writeln!(output, "        if topics.len() < {} {{", expected_topics)?;
+    writeln!(output, "            return Err(DecodeError::NotEnoughTopics {{")?;
+    writeln!(output, "                expected: {},", expected_topics)?;
+    writeln!(output, "                got: topics.len(),")?;
+    writeln!(output, "            }});")?;
+    writeln!(output, "        }}")?;
+    writeln!(output)?;
+
+    // Decode indexed params from topics
+    let mut seen_names = HashSet::new();
+    let mut topic_idx = 1; // Start after selector
+    for (i, param) in event.inputs.iter().enumerate() {
+        if !param.indexed {
+            continue;
+        }
+        let field_name = param_to_field_name(param, i, &mut seen_names);
+        let decode_expr = topic_decode_expr(&param.ty, topic_idx);
+        writeln!(output, "        let {} = {};", field_name, decode_expr)?;
+        topic_idx += 1;
+    }
+
+    // Decode non-indexed params from data
+    let mut data_offset = 0;
+    seen_names.clear();
+    for (i, param) in event.inputs.iter().enumerate() {
+        if param.indexed {
+            continue;
+        }
+        let field_name = param_to_field_name(param, i, &mut seen_names);
+        let (decode_expr, size) = data_decode_expr(&param.ty, data_offset);
+        writeln!(output, "        let {} = {}?;", field_name, decode_expr)?;
+        data_offset += size;
+    }
+
+    writeln!(output)?;
+    writeln!(output, "        Ok(Self {{")?;
+    writeln!(output, "            tx_hash: B256::default(),")?;
+    writeln!(output, "            log_index: BigInt::zero(),")?;
+    writeln!(output, "            block_number: BigInt::zero(),")?;
+    writeln!(output, "            block_timestamp: BigInt::zero(),")?;
+    writeln!(output, "            address: Address::ZERO,")?;
+
+    // Output all fields
+    seen_names.clear();
+    for (i, param) in event.inputs.iter().enumerate() {
+        let field_name = param_to_field_name(param, i, &mut seen_names);
+        writeln!(output, "            {},", field_name)?;
+    }
+
+    writeln!(output, "        }})")?;
+    writeln!(output, "    }}")?;
     writeln!(output, "}}")?;
 
     Ok(output)
+}
+
+/// Generate decode expression for an indexed parameter from a topic.
+fn topic_decode_expr(sol_type: &str, topic_idx: usize) -> String {
+    match sol_type {
+        "address" => format!(
+            "graphite::decode::decode_address_from_topic(&topics[{}])",
+            topic_idx
+        ),
+        "bool" => format!(
+            "graphite::decode::decode_bool_from_topic(&topics[{}])",
+            topic_idx
+        ),
+        "bytes32" => format!(
+            "graphite::decode::decode_bytes32_from_topic(&topics[{}])",
+            topic_idx
+        ),
+        _ if sol_type.starts_with("uint") || sol_type.starts_with("int") => format!(
+            "graphite::decode::decode_uint256_from_topic(&topics[{}])",
+            topic_idx
+        ),
+        // Default: treat as bytes32
+        _ => format!("topics[{}]", topic_idx),
+    }
+}
+
+/// Generate decode expression for a non-indexed parameter from data.
+/// Returns (expression, size in bytes consumed).
+fn data_decode_expr(sol_type: &str, offset: usize) -> (String, usize) {
+    match sol_type {
+        "address" => (
+            format!("graphite::decode::decode_address(data, {})", offset),
+            32,
+        ),
+        "bool" => (
+            format!("graphite::decode::decode_bool(data, {})", offset),
+            32,
+        ),
+        "bytes32" => (
+            format!("graphite::decode::decode_bytes32(data, {})", offset),
+            32,
+        ),
+        "string" => (
+            format!("graphite::decode::decode_string(data, {})", offset),
+            32, // Pointer takes 32 bytes
+        ),
+        "bytes" => (
+            format!("graphite::decode::decode_bytes(data, {})", offset),
+            32, // Pointer takes 32 bytes
+        ),
+        _ if sol_type.starts_with("uint") || sol_type.starts_with("int") => (
+            format!("graphite::decode::decode_uint256(data, {})", offset),
+            32,
+        ),
+        // Default fallback
+        _ => (
+            format!("graphite::decode::decode_bytes32(data, {})", offset),
+            32,
+        ),
+    }
 }
 
 /// Generate an enum that encompasses all events from a contract.

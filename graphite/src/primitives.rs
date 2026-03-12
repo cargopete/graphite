@@ -56,6 +56,11 @@ impl Bytes {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// Convert to owned Vec<u8>.
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.clone()
+    }
 }
 
 impl From<Vec<u8>> for Bytes {
@@ -113,6 +118,26 @@ impl BigInt {
 
     pub fn is_negative(&self) -> bool {
         self.0 < num_bigint::BigInt::ZERO
+    }
+
+    /// Create from unsigned big-endian bytes.
+    pub fn from_unsigned_bytes_be(bytes: &[u8]) -> Self {
+        Self(num_bigint::BigInt::from_bytes_be(
+            num_bigint::Sign::Plus,
+            bytes,
+        ))
+    }
+
+    /// Try to convert to u64. Returns None if out of range.
+    pub fn to_u64(&self) -> Option<u64> {
+        use num_traits::ToPrimitive;
+        self.0.to_u64()
+    }
+
+    /// Try to convert to i64. Returns None if out of range.
+    pub fn to_i64(&self) -> Option<i64> {
+        use num_traits::ToPrimitive;
+        self.0.to_i64()
     }
 }
 

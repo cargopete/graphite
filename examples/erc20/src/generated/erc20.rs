@@ -34,8 +34,55 @@ impl ERC20ApprovalEvent {
         format!("{:?}-{}", self.tx_hash, self.log_index)
     }
 
-    /// The event topic (keccak256 of signature).
-    pub const SELECTOR: [u8; 32] = [140, 91, 225, 229, 235, 236, 125, 91, 209, 79, 113, 66, 125, 30, 132, 243, 221, 3, 20, 192, 247, 178, 41, 30, 91, 32, 10, 200, 199, 195, 185, 37];
+    /// Decode from a raw log.
+    pub fn from_raw_log(log: &RawLog) -> Result<Self, DecodeError> {
+        <Self as EventDecode>::decode(&log.topics, log.data.as_slice())
+            .map(|mut e| {
+                e.tx_hash = log.tx_hash;
+                e.log_index = BigInt::from(log.log_index);
+                e.block_number = BigInt::from(log.block_number);
+                e.block_timestamp = BigInt::from(log.block_timestamp);
+                e.address = log.address;
+                e
+            })
+    }
+}
+
+impl EventDecode for ERC20ApprovalEvent {
+    const SELECTOR: [u8; 32] = [140, 91, 225, 229, 235, 236, 125, 91, 209, 79, 113, 66, 125, 30, 132, 243, 221, 3, 20, 192, 247, 178, 41, 30, 91, 32, 10, 200, 199, 195, 185, 37];
+
+    fn decode(topics: &[B256], data: &[u8]) -> Result<Self, DecodeError> {
+        // Verify selector
+        if topics.is_empty() || topics[0].0 != Self::SELECTOR {
+            return Err(DecodeError::SelectorMismatch {
+                expected: Self::SELECTOR,
+                got: topics.first().map(|t| t.0).unwrap_or([0; 32]),
+            });
+        }
+
+        // Verify topic count
+        if topics.len() < 3 {
+            return Err(DecodeError::NotEnoughTopics {
+                expected: 3,
+                got: topics.len(),
+            });
+        }
+
+        let owner = graphite::decode::decode_address_from_topic(&topics[1]);
+        let spender = graphite::decode::decode_address_from_topic(&topics[2]);
+        let value = graphite::decode::decode_uint256(data, 0)?;
+
+        Ok(Self {
+            tx_hash: B256::default(),
+            log_index: BigInt::zero(),
+            block_number: BigInt::zero(),
+            block_timestamp: BigInt::zero(),
+            address: Address::ZERO,
+            owner,
+            spender,
+            value,
+        })
+    }
 }
 
 /// Event: `Transfer(address,address,uint256)`
@@ -65,8 +112,55 @@ impl ERC20TransferEvent {
         format!("{:?}-{}", self.tx_hash, self.log_index)
     }
 
-    /// The event topic (keccak256 of signature).
-    pub const SELECTOR: [u8; 32] = [221, 242, 82, 173, 27, 226, 200, 155, 105, 194, 176, 104, 252, 55, 141, 170, 149, 43, 167, 241, 99, 196, 161, 22, 40, 245, 90, 77, 245, 35, 179, 239];
+    /// Decode from a raw log.
+    pub fn from_raw_log(log: &RawLog) -> Result<Self, DecodeError> {
+        <Self as EventDecode>::decode(&log.topics, log.data.as_slice())
+            .map(|mut e| {
+                e.tx_hash = log.tx_hash;
+                e.log_index = BigInt::from(log.log_index);
+                e.block_number = BigInt::from(log.block_number);
+                e.block_timestamp = BigInt::from(log.block_timestamp);
+                e.address = log.address;
+                e
+            })
+    }
+}
+
+impl EventDecode for ERC20TransferEvent {
+    const SELECTOR: [u8; 32] = [221, 242, 82, 173, 27, 226, 200, 155, 105, 194, 176, 104, 252, 55, 141, 170, 149, 43, 167, 241, 99, 196, 161, 22, 40, 245, 90, 77, 245, 35, 179, 239];
+
+    fn decode(topics: &[B256], data: &[u8]) -> Result<Self, DecodeError> {
+        // Verify selector
+        if topics.is_empty() || topics[0].0 != Self::SELECTOR {
+            return Err(DecodeError::SelectorMismatch {
+                expected: Self::SELECTOR,
+                got: topics.first().map(|t| t.0).unwrap_or([0; 32]),
+            });
+        }
+
+        // Verify topic count
+        if topics.len() < 3 {
+            return Err(DecodeError::NotEnoughTopics {
+                expected: 3,
+                got: topics.len(),
+            });
+        }
+
+        let from = graphite::decode::decode_address_from_topic(&topics[1]);
+        let to = graphite::decode::decode_address_from_topic(&topics[2]);
+        let value = graphite::decode::decode_uint256(data, 0)?;
+
+        Ok(Self {
+            tx_hash: B256::default(),
+            log_index: BigInt::zero(),
+            block_number: BigInt::zero(),
+            block_timestamp: BigInt::zero(),
+            address: Address::ZERO,
+            from,
+            to,
+            value,
+        })
+    }
 }
 
 /// All events emitted by the ERC20 contract.
