@@ -337,6 +337,66 @@ impl<'a> TlvReader<'a> {
             _ => Err(DecodeError::InvalidData(format!("unknown tag: 0x{:02x}", tag))),
         }
     }
+
+    /// Read a u64 in little-endian format.
+    pub fn read_u64(&mut self) -> Result<u64, DecodeError> {
+        if self.remaining() < 8 {
+            return Err(DecodeError::DataTooShort {
+                expected: self.pos + 8,
+                got: self.data.len(),
+            });
+        }
+        let val = u64::from_le_bytes(self.data[self.pos..self.pos + 8].try_into().unwrap());
+        self.pos += 8;
+        Ok(val)
+    }
+}
+
+// ============ RawLog Deserialization ============
+
+impl FromWasmBytes for RawLog {
+    /// Deserialize a RawLog from graph-node's TLV format.
+    ///
+    /// Format:
+    /// - address: [u8; 20] (fixed)
+    /// - tx_hash: [u8; 32] (fixed)
+    /// - log_index: u64 (LE)
+    /// - block_number: u64 (LE)
+    /// - block_timestamp: u64 (LE)
+    /// - topics_count: u32 (LE)
+    /// - topics: [[u8; 32]; topics_count]
+    /// - data_len: u32 (LE)
+    /// - data: [u8; data_len]
+    fn from_wasm_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut reader = TlvReader::new(bytes);
+
+        // Fixed-size fields
+        let address = reader.read_address()?;
+        let tx_hash = reader.read_b256()?;
+        let log_index = reader.read_u64()?;
+        let block_number = reader.read_u64()?;
+        let block_timestamp = reader.read_u64()?;
+
+        // Topics array
+        let topics_count = reader.read_u32()? as usize;
+        let mut topics = Vec::with_capacity(topics_count);
+        for _ in 0..topics_count {
+            topics.push(reader.read_b256()?);
+        }
+
+        // Data
+        let data = reader.read_bytes_value()?;
+
+        Ok(RawLog {
+            address,
+            topics,
+            data,
+            tx_hash,
+            log_index,
+            block_number,
+            block_timestamp,
+        })
+    }
 }
 
 #[cfg(test)]
