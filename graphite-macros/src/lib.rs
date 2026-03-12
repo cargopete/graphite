@@ -63,7 +63,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         quote! {
             #field_name: entity
                 .get(#field_name_str)
-                .and_then(|v| <#field_type as FromValue>::from_value(v.clone()))
+                .and_then(|v| <#field_type as graphite::store::FromValue>::from_value(v.clone()))
                 .ok_or_else(|| graphite::store::EntityError::MissingField(#field_name_str.into()))?
         }
     });

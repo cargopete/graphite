@@ -112,6 +112,105 @@ impl Value {
     }
 }
 
+/// Trait for extracting typed values from store Values.
+///
+/// Implement this for custom types to enable them in Entity derives.
+pub trait FromValue: Sized {
+    /// Attempt to convert a Value into Self.
+    fn from_value(value: Value) -> Option<Self>;
+}
+
+impl FromValue for String {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::String(s) => Some(s),
+            _ => None,
+        }
+    }
+}
+
+impl FromValue for i32 {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::Int(n) => Some(n),
+            _ => None,
+        }
+    }
+}
+
+impl FromValue for i64 {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::Int8(n) => Some(n),
+            Value::Int(n) => Some(n as i64),
+            _ => None,
+        }
+    }
+}
+
+impl FromValue for bool {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::Bool(b) => Some(b),
+            _ => None,
+        }
+    }
+}
+
+impl FromValue for BigInt {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::BigInt(n) => Some(n),
+            _ => None,
+        }
+    }
+}
+
+impl FromValue for BigDecimal {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::BigDecimal(n) => Some(n),
+            _ => None,
+        }
+    }
+}
+
+impl FromValue for Address {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::Address(a) => Some(a),
+            _ => None,
+        }
+    }
+}
+
+impl FromValue for Bytes {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::Bytes(b) => Some(b),
+            _ => None,
+        }
+    }
+}
+
+impl<T: FromValue> FromValue for Vec<T> {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::Array(arr) => arr.into_iter().map(T::from_value).collect(),
+            _ => None,
+        }
+    }
+}
+
+impl<T: FromValue> FromValue for Option<T> {
+    fn from_value(value: Value) -> Option<Self> {
+        match value {
+            Value::Null => Some(None),
+            other => T::from_value(other).map(Some),
+        }
+    }
+}
+
 // Convenient From implementations
 
 impl From<String> for Value {

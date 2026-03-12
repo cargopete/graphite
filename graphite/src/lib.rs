@@ -41,7 +41,7 @@ pub mod testing;
 pub mod prelude {
     pub use crate::host::HostFunctions;
     pub use crate::primitives::{Address, BigDecimal, BigInt, Bytes, B256, U256};
-    pub use crate::store::{Entity, Store, Value};
+    pub use crate::store::{Entity, FromValue, Store, Value};
     pub use graphite_macros::{handler, Entity};
 
     #[cfg(feature = "std")]
