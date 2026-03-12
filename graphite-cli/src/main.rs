@@ -7,8 +7,11 @@
 //! - `graphite test` — run tests (delegates to cargo test)
 //! - `graphite deploy` — deploy to graph-node
 
-use anyhow::Result;
+mod codegen;
+
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "graphite")]
@@ -37,7 +40,11 @@ enum Commands {
     },
 
     /// Generate Rust types from ABI and GraphQL schema
-    Codegen,
+    Codegen {
+        /// Path to graphite.toml config (default: ./graphite.toml)
+        #[arg(long, short)]
+        config: Option<PathBuf>,
+    },
 
     /// Compile the subgraph to WASM
     Build {
@@ -84,9 +91,10 @@ fn main() -> Result<()> {
             cmd_init(&name, from_contract.as_deref(), &network)
         }
 
-        Commands::Codegen => {
+        Commands::Codegen { config } => {
+            let config_path = config.unwrap_or_else(|| PathBuf::from("graphite.toml"));
             println!("Generating types from ABI and schema...");
-            cmd_codegen()
+            cmd_codegen(&config_path)
         }
 
         Commands::Build { release } => {
@@ -120,13 +128,72 @@ fn cmd_init(_name: &str, _from_contract: Option<&str>, _network: &str) -> Result
     Ok(())
 }
 
-fn cmd_codegen() -> Result<()> {
-    // TODO: Generate Rust types
-    // - Parse subgraph.yaml for ABI paths and data sources
-    // - Parse schema.graphql for entity definitions
-    // - Generate generated/schema.rs with Entity derive structs
-    // - Generate generated/<contract>.rs with event structs
-    println!("  TODO: Code generation not yet implemented");
+/// Configuration for codegen, read from graphite.toml
+#[derive(Debug, serde::Deserialize)]
+struct GraphiteConfig {
+    /// Output directory for generated code
+    #[serde(default = "default_output_dir")]
+    output_dir: PathBuf,
+    /// Contract definitions
+    #[serde(default)]
+    contracts: Vec<ContractConfig>,
+}
+
+fn default_output_dir() -> PathBuf {
+    PathBuf::from("src/generated")
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ContractConfig {
+    /// Contract name (used for struct prefixes)
+    name: String,
+    /// Path to the ABI JSON file
+    abi: PathBuf,
+}
+
+fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
+    // Read config
+    let config_str = std::fs::read_to_string(config_path)
+        .with_context(|| format!("Failed to read config: {}", config_path.display()))?;
+    let config: GraphiteConfig = toml::from_str(&config_str)
+        .with_context(|| format!("Failed to parse config: {}", config_path.display()))?;
+
+    // Create output directory
+    std::fs::create_dir_all(&config.output_dir)
+        .with_context(|| format!("Failed to create output dir: {}", config.output_dir.display()))?;
+
+    // Generate mod.rs for the generated module
+    let mut mod_contents = String::from("//! Generated code — do not edit.\n\n");
+
+    for contract in &config.contracts {
+        println!("  Generating bindings for {}...", contract.name);
+
+        let code = codegen::generate_abi_bindings(&contract.abi, &contract.name)
+            .with_context(|| format!("Failed to generate bindings for {}", contract.name))?;
+
+        // Write the generated file
+        let filename = format!("{}.rs", contract.name.to_lowercase());
+        let output_path = config.output_dir.join(&filename);
+        std::fs::write(&output_path, &code)
+            .with_context(|| format!("Failed to write {}", output_path.display()))?;
+
+        // Add to mod.rs
+        mod_contents.push_str(&format!(
+            "mod {};\npub use {}::*;\n\n",
+            contract.name.to_lowercase(),
+            contract.name.to_lowercase()
+        ));
+
+        println!("    → {}", output_path.display());
+    }
+
+    // Write mod.rs
+    let mod_path = config.output_dir.join("mod.rs");
+    std::fs::write(&mod_path, &mod_contents)
+        .with_context(|| format!("Failed to write {}", mod_path.display()))?;
+    println!("    → {}", mod_path.display());
+
+    println!("Done! Add `mod generated;` to your lib.rs to use the generated code.");
     Ok(())
 }
 

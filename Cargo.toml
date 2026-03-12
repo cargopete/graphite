@@ -17,6 +17,7 @@ graphite-macros = { path = "graphite-macros" }
 # Ethereum primitives (alloy ecosystem)
 alloy-primitives = { version = "0.8", default-features = false }
 alloy-sol-types = { version = "0.8", default-features = false }
+alloy-json-abi = { version = "0.8" }
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -44,3 +45,5 @@ anyhow = "1.0"
 
 # Utilities
 hex = "0.4"
+heck = "0.5"
+toml = "0.8"

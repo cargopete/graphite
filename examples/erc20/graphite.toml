@@ -1,0 +1,7 @@
+# Graphite subgraph configuration
+
+output_dir = "src/generated"
+
+[[contracts]]
+name = "ERC20"
+abi = "abis/ERC20.json"
