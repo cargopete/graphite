@@ -5,9 +5,8 @@
 //! or mock implementations (in native tests).
 
 use crate::primitives::{Address, BigInt, Bytes};
-use crate::store::{Entity, Value};
+use crate::store::Entity;
 use alloc::string::String;
-use alloc::vec::Vec;
 
 /// The core trait abstracting all graph-node host functions.
 ///
@@ -27,13 +26,14 @@ pub trait HostFunctions {
 
     // ============ Ethereum Operations ============
 
-    /// Make a read-only call to a smart contract.
-    fn ethereum_call(
+    /// Make a raw read-only call to a smart contract.
+    /// Takes pre-encoded calldata and returns raw bytes.
+    /// Use alloy-sol-types for ABI encoding/decoding.
+    fn ethereum_call_raw(
         &self,
         address: Address,
-        function_signature: &str,
-        params: &[Value],
-    ) -> Result<Vec<Value>, EthereumCallError>;
+        calldata: &[u8],
+    ) -> Result<Bytes, EthereumCallError>;
 
     // ============ Crypto Operations ============
 

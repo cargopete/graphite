@@ -104,6 +104,14 @@ impl BigInt {
         self.0.to_signed_bytes_be()
     }
 
+    pub fn to_signed_bytes_le(&self) -> Vec<u8> {
+        self.0.to_signed_bytes_le()
+    }
+
+    pub fn from_signed_bytes_le(bytes: &[u8]) -> Self {
+        Self(num_bigint::BigInt::from_signed_bytes_le(bytes))
+    }
+
     pub fn pow(&self, exp: u32) -> Self {
         Self(self.0.pow(exp))
     }

@@ -43,7 +43,9 @@ pub mod wasm;
 
 /// Prelude module — import everything you need with `use graphite::prelude::*`
 pub mod prelude {
-    pub use crate::decode::{DecodeError, EventDecode, FromWasmBytes, RawLog, TlvReader};
+    pub use crate::decode::{
+        DecodeError, EventDecode, FromWasmBytes, RawBlock, RawCall, RawLog, TlvReader,
+    };
     pub use crate::host::HostFunctions;
     pub use crate::primitives::{Address, BigDecimal, BigInt, Bytes, B256, U256};
     pub use crate::store::{Entity, FromValue, Store, Value};

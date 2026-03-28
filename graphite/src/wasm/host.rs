@@ -88,41 +88,41 @@ impl HostFunctions for WasmHost {
         }
     }
 
-    fn ethereum_call(
+    fn ethereum_call_raw(
         &self,
         address: Address,
-        function_signature: &str,
-        params: &[Value],
-    ) -> Result<Vec<Value>, EthereumCallError> {
+        calldata: &[u8],
+    ) -> Result<Bytes, EthereumCallError> {
         let address_ptr = alloc_slice(address.as_slice());
-        let sig_ptr = alloc_str(function_signature);
+        let calldata_ptr = alloc_slice(calldata);
 
-        // Serialize params to ABI encoding
-        let params_bytes = serialize_call_params(params);
-        let params_ptr = alloc_slice(&params_bytes);
-
-        // Allocate output buffer
+        // Allocate output buffer (4KB for most returns)
         const OUT_CAP: u32 = 4 * 1024;
         let out_ptr = allocate(OUT_CAP);
 
         let len = unsafe {
             ffi::ethereum_call(
                 address_ptr,
-                sig_ptr,
-                function_signature.len() as u32,
-                params_ptr,
-                params_bytes.len() as u32,
+                address.as_slice().len() as u32,
+                calldata_ptr,
+                calldata.len() as u32,
                 out_ptr,
                 OUT_CAP,
             )
         };
 
-        if len == u32::MAX {
+        if len == 0 {
+            // 0 indicates revert
             return Err(EthereumCallError::Reverted);
         }
 
+        if len == u32::MAX {
+            // u32::MAX indicates buffer too small or error
+            return Err(EthereumCallError::Failed("response too large".into()));
+        }
+
         let bytes = unsafe { core::slice::from_raw_parts(out_ptr as *const u8, len as usize) };
-        Ok(deserialize_call_result(bytes))
+        Ok(Bytes::from_slice(bytes))
     }
 
     fn crypto_keccak256(&self, input: &[u8]) -> [u8; 32] {
@@ -254,7 +254,7 @@ fn serialize_value(buf: &mut Vec<u8>, value: &Value) {
         }
         Value::BigInt(n) => {
             buf.push(0x04);
-            let bytes = n.to_signed_bytes_be();
+            let bytes = n.to_signed_bytes_le();
             buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&bytes);
         }
@@ -383,16 +383,6 @@ fn deserialize_value(bytes: &[u8]) -> Option<(Value, usize)> {
     };
 
     Some((value, pos))
-}
-
-fn serialize_call_params(_params: &[Value]) -> Vec<u8> {
-    // TODO: ABI encoding
-    Vec::new()
-}
-
-fn deserialize_call_result(_bytes: &[u8]) -> Vec<Value> {
-    // TODO: ABI decoding
-    Vec::new()
 }
 
 fn serialize_string_vec(strings: &[String]) -> Vec<u8> {

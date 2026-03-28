@@ -66,20 +66,21 @@ unsafe extern "C" {
 
     // ========== Ethereum Operations ==========
 
-    /// Make a read-only contract call.
+    /// Make a raw read-only contract call.
     ///
-    /// - address_ptr: 20-byte address
-    /// - signature_ptr/len: UTF-8 function signature
-    /// - params_ptr/len: ABI-encoded parameters
-    /// - out_ptr/out_cap: buffer for ABI-encoded return value
+    /// - addr_ptr/len: 20-byte address
+    /// - data_ptr/len: raw calldata (pre-ABI-encoded by SDK)
+    /// - out_ptr/out_cap: buffer for raw return data
     ///
-    /// Returns: actual length, or u32::MAX on error
+    /// Returns:
+    /// - actual length on success
+    /// - 0 on revert (call reverted, no data)
+    /// - u32::MAX if buffer too small or error
     pub fn ethereum_call(
-        address_ptr: u32,
-        signature_ptr: u32,
-        signature_len: u32,
-        params_ptr: u32,
-        params_len: u32,
+        addr_ptr: u32,
+        addr_len: u32,
+        data_ptr: u32,
+        data_len: u32,
         out_ptr: u32,
         out_cap: u32,
     ) -> u32;

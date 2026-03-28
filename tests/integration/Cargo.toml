@@ -1,0 +1,13 @@
+[package]
+name = "graphite-integration-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[test]]
+name = "wasm_handler"
+harness = true
+
+[dependencies]
+wasmtime = "29"
+graphite = { path = "../../graphite" }

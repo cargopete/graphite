@@ -24,8 +24,9 @@ pub struct MockHost {
     /// The in-memory entity store.
     pub store: MockStore,
 
-    /// Mock responses for ethereum calls.
-    pub eth_calls: HashMap<(Address, String), Result<Vec<Value>, EthereumCallError>>,
+    /// Mock responses for raw ethereum calls.
+    /// Key is (address, calldata), value is raw response bytes or error.
+    pub eth_calls: HashMap<(Address, Vec<u8>), Result<Bytes, EthereumCallError>>,
 
     /// Mock responses for IPFS fetches.
     pub ipfs_content: HashMap<String, Bytes>,
@@ -64,14 +65,15 @@ impl MockHost {
         self
     }
 
-    /// Mock an ethereum call response.
-    pub fn mock_eth_call(
+    /// Mock a raw ethereum call response.
+    /// Use alloy-sol-types to encode the expected calldata and response.
+    pub fn mock_eth_call_raw(
         &mut self,
         address: Address,
-        signature: impl Into<String>,
-        response: Result<Vec<Value>, EthereumCallError>,
+        calldata: impl Into<Vec<u8>>,
+        response: Result<Bytes, EthereumCallError>,
     ) {
-        self.eth_calls.insert((address, signature.into()), response);
+        self.eth_calls.insert((address, calldata.into()), response);
     }
 
     /// Mock IPFS content.
@@ -107,17 +109,16 @@ impl HostFunctions for MockHost {
         self.store.remove(entity_type, id);
     }
 
-    fn ethereum_call(
+    fn ethereum_call_raw(
         &self,
         address: Address,
-        function_signature: &str,
-        _params: &[Value],
-    ) -> Result<Vec<Value>, EthereumCallError> {
+        calldata: &[u8],
+    ) -> Result<Bytes, EthereumCallError> {
         self.eth_calls
-            .get(&(address, function_signature.to_string()))
+            .get(&(address, calldata.to_vec()))
             .cloned()
             .unwrap_or(Err(EthereumCallError::Failed(
-                "no mock configured".to_string(),
+                "no mock configured for this call".to_string(),
             )))
     }
 

@@ -399,6 +399,134 @@ impl FromWasmBytes for RawLog {
     }
 }
 
+// ============ RawCall Deserialization ============
+
+/// Raw call data from an Ethereum transaction.
+#[derive(Debug, Clone)]
+pub struct RawCall {
+    /// Contract address being called
+    pub to: Address,
+    /// Caller address
+    pub from: Address,
+    /// Transaction hash
+    pub tx_hash: B256,
+    /// Block number
+    pub block_number: u64,
+    /// Block timestamp
+    pub block_timestamp: u64,
+    /// Block hash
+    pub block_hash: B256,
+    /// Call input data
+    pub input: Bytes,
+    /// Call output data
+    pub output: Bytes,
+}
+
+impl FromWasmBytes for RawCall {
+    /// Deserialize a RawCall from graph-node's format.
+    ///
+    /// Format:
+    /// - to: [u8; 20] (fixed)
+    /// - from: [u8; 20] (fixed)
+    /// - tx_hash: [u8; 32] (fixed)
+    /// - block_number: u64 (LE)
+    /// - block_timestamp: u64 (LE)
+    /// - block_hash: [u8; 32] (fixed)
+    /// - input_len: u32 (LE)
+    /// - input: [u8; input_len]
+    /// - output_len: u32 (LE)
+    /// - output: [u8; output_len]
+    fn from_wasm_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut reader = TlvReader::new(bytes);
+
+        let to = reader.read_address()?;
+        let from = reader.read_address()?;
+        let tx_hash = reader.read_b256()?;
+        let block_number = reader.read_u64()?;
+        let block_timestamp = reader.read_u64()?;
+        let block_hash = reader.read_b256()?;
+        let input = reader.read_bytes_value()?;
+        let output = reader.read_bytes_value()?;
+
+        Ok(RawCall {
+            to,
+            from,
+            tx_hash,
+            block_number,
+            block_timestamp,
+            block_hash,
+            input,
+            output,
+        })
+    }
+}
+
+// ============ RawBlock Deserialization ============
+
+/// Raw block data from Ethereum.
+#[derive(Debug, Clone)]
+pub struct RawBlock {
+    /// Block hash
+    pub hash: B256,
+    /// Parent block hash
+    pub parent_hash: B256,
+    /// Block number
+    pub number: u64,
+    /// Block timestamp
+    pub timestamp: u64,
+    /// Block author/miner address
+    pub author: Address,
+    /// Gas used in the block
+    pub gas_used: u64,
+    /// Gas limit for the block
+    pub gas_limit: u64,
+    /// Block difficulty
+    pub difficulty: BigInt,
+    /// Base fee per gas (EIP-1559)
+    pub base_fee_per_gas: u64,
+}
+
+impl FromWasmBytes for RawBlock {
+    /// Deserialize a RawBlock from graph-node's format.
+    ///
+    /// Format:
+    /// - hash: [u8; 32] (fixed)
+    /// - parent_hash: [u8; 32] (fixed)
+    /// - number: u64 (LE)
+    /// - timestamp: u64 (LE)
+    /// - author: [u8; 20] (fixed)
+    /// - gas_used: u64 (LE)
+    /// - gas_limit: u64 (LE)
+    /// - difficulty: [u8; 32] (big-endian U256)
+    /// - base_fee_per_gas: u64 (LE)
+    fn from_wasm_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut reader = TlvReader::new(bytes);
+
+        let hash = reader.read_b256()?;
+        let parent_hash = reader.read_b256()?;
+        let number = reader.read_u64()?;
+        let timestamp = reader.read_u64()?;
+        let author = reader.read_address()?;
+        let gas_used = reader.read_u64()?;
+        let gas_limit = reader.read_u64()?;
+        let difficulty_bytes = reader.read_bytes(32)?;
+        let difficulty = BigInt::from_unsigned_bytes_be(difficulty_bytes);
+        let base_fee_per_gas = reader.read_u64()?;
+
+        Ok(RawBlock {
+            hash,
+            parent_hash,
+            number,
+            timestamp,
+            author,
+            gas_used,
+            gas_limit,
+            difficulty,
+            base_fee_per_gas,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,5 +571,75 @@ mod tests {
         let addr = decode_address(&data, 0).unwrap();
         assert_eq!(addr.as_slice()[0], 0xca);
         assert_eq!(addr.as_slice()[1], 0xfe);
+    }
+
+    #[test]
+    fn raw_call_from_wasm_bytes() {
+        // Build a test RawCall serialization matching RustCallTrigger format
+        let mut bytes = Vec::new();
+
+        // to: 20 bytes
+        bytes.extend_from_slice(&[0xaa; 20]);
+        // from: 20 bytes
+        bytes.extend_from_slice(&[0xbb; 20]);
+        // tx_hash: 32 bytes
+        bytes.extend_from_slice(&[0xcc; 32]);
+        // block_number: u64 LE
+        bytes.extend_from_slice(&100u64.to_le_bytes());
+        // block_timestamp: u64 LE
+        bytes.extend_from_slice(&1700000000u64.to_le_bytes());
+        // block_hash: 32 bytes
+        bytes.extend_from_slice(&[0xdd; 32]);
+        // input_len: u32 LE + input
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(&[0x12, 0x34, 0x56, 0x78]);
+        // output_len: u32 LE + output
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xab, 0xcd]);
+
+        let call = RawCall::from_wasm_bytes(&bytes).unwrap();
+
+        assert_eq!(call.to.as_slice(), &[0xaa; 20]);
+        assert_eq!(call.from.as_slice(), &[0xbb; 20]);
+        assert_eq!(call.block_number, 100);
+        assert_eq!(call.block_timestamp, 1700000000);
+        assert_eq!(call.input.as_slice(), &[0x12, 0x34, 0x56, 0x78]);
+        assert_eq!(call.output.as_slice(), &[0xab, 0xcd]);
+    }
+
+    #[test]
+    fn raw_block_from_wasm_bytes() {
+        // Build a test RawBlock serialization matching RustBlockTrigger format
+        let mut bytes = Vec::new();
+
+        // hash: 32 bytes
+        bytes.extend_from_slice(&[0x11; 32]);
+        // parent_hash: 32 bytes
+        bytes.extend_from_slice(&[0x22; 32]);
+        // number: u64 LE
+        bytes.extend_from_slice(&12345678u64.to_le_bytes());
+        // timestamp: u64 LE
+        bytes.extend_from_slice(&1700000000u64.to_le_bytes());
+        // author: 20 bytes
+        bytes.extend_from_slice(&[0x33; 20]);
+        // gas_used: u64 LE
+        bytes.extend_from_slice(&21000u64.to_le_bytes());
+        // gas_limit: u64 LE
+        bytes.extend_from_slice(&30000000u64.to_le_bytes());
+        // difficulty: 32 bytes (big-endian U256)
+        bytes.extend_from_slice(&[0x00; 32]);
+        // base_fee_per_gas: u64 LE
+        bytes.extend_from_slice(&1000000000u64.to_le_bytes());
+
+        let block = RawBlock::from_wasm_bytes(&bytes).unwrap();
+
+        assert_eq!(block.hash.as_slice(), &[0x11; 32]);
+        assert_eq!(block.parent_hash.as_slice(), &[0x22; 32]);
+        assert_eq!(block.number, 12345678);
+        assert_eq!(block.timestamp, 1700000000);
+        assert_eq!(block.author.as_slice(), &[0x33; 20]);
+        assert_eq!(block.gas_used, 21000);
+        assert_eq!(block.gas_limit, 30000000);
+        assert_eq!(block.base_fee_per_gas, 1000000000);
     }
 }

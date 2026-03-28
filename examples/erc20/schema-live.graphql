@@ -1,0 +1,18 @@
+type Transfer @entity {
+  "tx_hash-log_index"
+  id: ID!
+  "Sender address"
+  from: Bytes!
+  "Recipient address"
+  to: Bytes!
+  "Amount transferred"
+  value: BigInt!
+  "Block number"
+  blockNumber: BigInt!
+  "Block timestamp"
+  timestamp: BigInt!
+  "Transaction hash"
+  transactionHash: Bytes!
+  "Token address (empty for now)"
+  token: String!
+}

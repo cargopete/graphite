@@ -2,6 +2,8 @@
 
 This document outlines the changes required to enable Rust subgraphs in The Graph ecosystem. It covers modifications to both graph-node and the Graphite SDK.
 
+*Last updated: 2026-03-28*
+
 ---
 
 ## Overview
@@ -9,6 +11,18 @@ This document outlines the changes required to enable Rust subgraphs in The Grap
 **Goal:** Enable `language: wasm/rust` subgraphs that compile Rust handlers to WASM and run on graph-node with a clean, Rust-native ABI.
 
 **Key Insight:** graph-node's `host_exports.rs` is already language-agnostic. The AS coupling exists only in the serialization layer (`asc_abi/`). We add a parallel `rust_abi/` and dispatch based on manifest language.
+
+### Progress Summary
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Define Rust ABI Protocol | **Designed** — protocol defined in this doc + implemented in SDK, formal spec doc not yet written |
+| 2 | Implement rust_abi/ in graph-node | **Done** — ~1,450 LOC across 5 new files, all tests passing |
+| 3 | Manifest parsing and dispatch | **Done** — language detection, linker dispatch, Rust calling convention |
+| 4 | Complete Graphite SDK | **Done** — all SDK code implemented and compiling |
+| 5 | Integration testing | **Done** — WASM integration test + live mainnet test passing |
+
+**Graph-node fork:** `/Users/pepe/Projects/graph-node` (modifications on upstream `master`, compiles clean, live-tested)
 
 ---
 
@@ -66,8 +80,8 @@ Value tags:
   0x01 = String (len:u32, data:bytes)
   0x02 = Int (i32 little-endian)
   0x03 = Int8 (i64 little-endian)
-  0x04 = BigInt (len:u32, signed big-endian bytes)
-  0x05 = BigDecimal (scale:i64, len:u32, unscaled big-endian bytes)
+  0x04 = BigInt (len:u32, signed little-endian bytes)
+  0x05 = BigDecimal (string representation, len:u32, UTF-8 bytes)
   0x06 = Bool (0x00 or 0x01)
   0x07 = Bytes (len:u32, data:bytes)
   0x08 = Address (20 bytes)
@@ -84,9 +98,13 @@ Value tags:
 
 ### 1.3 Deliverables
 
-- [ ] `docs/rust-abi-spec.md` in graph-node repo
-- [ ] Shared constants for value tags
-- [ ] Test vectors for serialization
+The protocol is fully designed (see above) and implemented on the SDK side (`graphite/src/decode.rs`, `graphite/src/wasm/host.rs`). What remains is formalising it in the graph-node repo:
+
+- [x] Protocol design — function signatures, TLV format, event layout (this document)
+- [x] SDK-side implementation — `TlvReader`, `FromWasmBytes`, entity serialization in `WasmHost`
+- [ ] `docs/rust-abi-spec.md` in graph-node repo (formal standalone spec)
+- [ ] Shared constants for value tags (currently hardcoded on both sides — needs a shared crate or spec)
+- [ ] Test vectors for serialization (cross-validate SDK and graph-node implementations)
 
 ---
 
@@ -146,12 +164,14 @@ pub fn link_rust_exports(
 
 ### 2.4 Deliverables
 
-- [ ] `rust_abi/mod.rs` - module structure, Language enum
-- [ ] `rust_abi/types.rs` - RustWasmType trait and impls
-- [ ] `rust_abi/entity.rs` - Entity serialization
-- [ ] `rust_abi/event.rs` - Event/trigger serialization
-- [ ] `rust_abi/host.rs` - Linker function wrappers
-- [ ] Unit tests for serialization roundtrips
+**Status: Done.** Implemented in `/Users/pepe/Projects/graph-node/runtime/wasm/src/rust_abi/` (commits `2028ec3` and `e95972d`).
+
+- [x] `rust_abi/mod.rs` (41 LOC) — `MappingLanguage` enum with `from_kind("wasm/rust")` parser
+- [x] `rust_abi/types.rs` (247 LOC) — `ToRustWasm`/`FromRustWasm` traits + impls for i32, i64, bool, String, Vec<u8>, [u8;20], [u8;32], BigInt, BigDecimal. `ValueTag` enum for TLV tags.
+- [x] `rust_abi/entity.rs` (260 LOC) — `serialize_entity()`/`deserialize_entity_data()` with full TLV, handles all graph-core Value types including Timestamp
+- [x] `rust_abi/trigger.rs` (247 LOC) — `ToRustBytes` trait + `RustLogTrigger`, `RustCallTrigger`, `RustBlockTrigger` structs with serialization
+- [x] `rust_abi/host.rs` (526 LOC) — All linker functions: store_set/get/remove (async), crypto_keccak256, log_log, data_source_address/network/create, ipfs_cat (async), ethereum_call (async, reorg detection, 5B gas). Memory helpers with gas metering. `is_rust_module()` for namespace detection.
+- [x] Unit tests — entity roundtrips, trigger serialization, BigInt/BigDecimal/String roundtrips (14 tests passing)
 
 ---
 
@@ -227,11 +247,18 @@ fn invoke_handler(&mut self, handler: &str, trigger: &Trigger) -> Result<()> {
 
 ### 3.4 Deliverables
 
-- [ ] Update manifest parsing for `kind: wasm/rust`
-- [ ] Add `MappingKind` enum
-- [ ] Dispatch in `build_linker()`
-- [ ] Update handler invocation for Rust calling convention
-- [ ] Integration test with minimal Rust WASM module
+**Status: Done.** Implemented across `instance.rs`, `context.rs`, `mapping.rs`, `host.rs`, and `chain/ethereum/src/trigger.rs`.
+
+- [x] Language detection — `MappingLanguage::from_kind()` parses `wasm/rust`; `is_rust_module()` detects "graphite" namespace imports
+- [x] `MappingLanguage` enum stored on `ValidModule`, propagated through module construction
+- [x] Dispatch in `build_linker()` — Rust modules skip AS linker macro, link only `rust_abi` functions + gas metering
+- [x] `handle_trigger_rust()` — serializes trigger via `ToRustBytes`, allocates WASM memory, calls `handler(ptr, len)`, calls `reset_arena()`
+- [x] `invoke_handler_rust()` (141 LOC) — full error handling: traps, timeouts, reorg detection, deterministic errors
+- [x] `WasmInstanceContext` Rust ABI methods (171 LOC) — `rust_store_set/get/remove`, `rust_log`, `rust_data_source_*`, `rust_ipfs_cat`
+- [x] Ethereum `ToRustBytes` — all 3 trigger types (Log, Call, Block) fully serialized
+- [x] NEAR `ToRustBytes` — stub impl (unimplemented! — Ethereum-only for now)
+- [x] Trait bounds (`ToRustBytes`) propagated through `instance_manager.rs`
+- [x] Integration test with minimal Rust WASM module (`tests/integration/tests/wasm_handler.rs`)
 
 ---
 
@@ -312,12 +339,17 @@ fn generate_event_struct(...) {
 
 ### 4.5 Deliverables
 
-- [ ] Complete `#[handler]` macro with proper WASM wrapper
-- [ ] Add `FromWasmBytes` trait and implementations
-- [ ] Update codegen to generate `FromWasmBytes`
-- [ ] Verify entity serialization matches spec
-- [ ] Add `reset_arena` export to alloc.rs (already done)
-- [ ] Unit tests for serialization
+**Status: Done.** All SDK-side work is complete and compiling.
+
+- [x] Complete `#[handler]` macro with proper WASM wrapper — generates `extern "C"` with `FromWasmBytes` deserialization, `WasmHost` creation, conditional compilation for WASM/native
+- [x] Add `FromWasmBytes` trait and implementations — full `TlvReader` with all value types, `RawLog`/`RawCall`/`RawBlock` deserialization
+- [x] Update codegen to generate `FromWasmBytes` — ABI codegen produces `FromWasmBytes` impl via `RawLog` → `from_raw_log` path
+- [x] Entity serialization in `WasmHost` — TLV format with tag bytes matching Phase 1 spec
+- [x] `reset_arena` export in `alloc.rs` — bump allocator with `allocate()` + `reset_arena()`
+- [x] Unit tests for serialization — decode tests passing, codegen tests passing
+- [x] `EventDecode` trait with selector checking and topic/data decoding
+- [x] `MockHost` with in-memory store, eth call mocks, IPFS mocks, log capture
+- [x] ERC20 example subgraph compiles and tests pass
 
 ---
 
@@ -349,8 +381,10 @@ test-subgraph/
 
 ### 5.3 CI Integration
 
-- [ ] Add Rust subgraph to graph-node integration tests
-- [ ] Test against mainnet fork with real contract events
+**Status: Done.** Both WASM-level and live integration tests passing.
+
+- [x] WASM integration test (`tests/integration/tests/wasm_handler.rs`) — loads ERC20 WASM with wasmtime, serializes a Transfer event using graph-node's exact `RustLogTrigger` binary format, calls `handle_transfer(ptr, len)`, captures and verifies `store_set` entity data. All fields validated: from, to, value, blockNumber, timestamp, transactionHash, id.
+- [x] Live integration test (`scripts/live-test.sh`) — deployed ERC20 subgraph to running graph-node fork, indexing real USDC Transfer events from Ethereum mainnet (block 24756400+), queried via GraphQL. Full pipeline verified: block ingestion → event scanning → Rust WASM handler → entity storage → GraphQL responses with correct from/to/value/blockNumber/timestamp fields.
 - [ ] Performance comparison vs AS equivalent
 
 ---
@@ -371,56 +405,93 @@ runtime/wasm/src/rust_abi/
 ### graph-node (modified files)
 
 ```
-graph/src/data_source/mod.rs       (+50 lines) - MappingKind enum
-graph/src/data_source/manifest.rs  (+30 lines) - Parse language
-runtime/wasm/src/module/mod.rs     (+20 lines) - Linker dispatch
-runtime/wasm/src/module/instance.rs (+40 lines) - Handler invocation
-runtime/wasm/src/lib.rs            (+5 lines)  - Export rust_abi
+graph/src/data_source/mod.rs           (+50 lines) - MappingKind enum
+graph/src/data_source/manifest.rs      (+30 lines) - Parse language
+runtime/wasm/src/mapping.rs            (+20 lines) - Skip parity_wasm for Rust modules
+runtime/wasm/src/module/mod.rs         (+25 lines) - Linker dispatch, skip id_of_type for Rust
+runtime/wasm/src/module/instance.rs    (+50 lines) - Handler invocation, skip _start for Rust
+runtime/wasm/src/lib.rs                (+5 lines)  - Export rust_abi
+chain/ethereum/src/trigger.rs          (+65 lines) - ToRustBytes for all Ethereum trigger types
+chain/near/src/trigger.rs              (+10 lines) - ToRustBytes stub for NEAR
+core/src/subgraph/instance_manager.rs  (+5 lines)  - ToRustBytes trait bounds
 ```
 
 ### graphite (modified files)
 
 ```
 graphite-macros/src/lib.rs         (~100 lines changed) - Handler macro
-graphite/src/decode.rs             (+50 lines) - FromWasmBytes trait
-graphite-cli/src/codegen/abi.rs    (+80 lines) - Generate FromWasmBytes
+graphite/src/decode.rs             (+50 lines)  - FromWasmBytes trait
+graphite/src/primitives.rs         (+10 lines)  - BigInt LE serialization
+graphite/src/wasm/host.rs          (~5 lines)   - BigInt BE → LE fix
+graphite-cli/src/codegen/abi.rs    (+80 lines)  - Generate FromWasmBytes
 ```
 
-**Estimated total:** ~1,400 lines new code, ~200 lines modified
+### graphite (new files)
+
+```
+tests/integration/                 - WASM integration test crate (wasmtime-based)
+scripts/live-test.sh               - Live deployment script
+examples/erc20/schema-live.graphql - Simplified schema for live test
+examples/erc20/subgraph-live.yaml  - Live test manifest config
+```
+
+**Estimated total:** ~1,500 lines new code in graph-node, ~300 lines modified across both repos
 
 ---
 
 ## Timeline
 
-| Phase | Description | Effort |
-|-------|-------------|--------|
-| 1 | Define Rust ABI Protocol | 1 day |
-| 2 | Implement rust_abi/ in graph-node | 3-4 days |
-| 3 | Manifest parsing and dispatch | 1-2 days |
-| 4 | Complete Graphite SDK | 2 days |
-| 5 | Integration testing | 2-3 days |
+| Phase | Description | Effort | Status |
+|-------|-------------|--------|--------|
+| 1 | Define Rust ABI Protocol | 1 day | **Designed** (formal spec doc remaining) |
+| 2 | Implement rust_abi/ in graph-node | 3-4 days | **Done** (~1,450 LOC) |
+| 3 | Manifest parsing and dispatch | 1-2 days | **Done** |
+| 4 | Complete Graphite SDK | 2 days | **Done** |
+| 5 | Integration testing | 2-3 days | **Done** |
 
-**Total:** ~10-12 days of focused work
+**Remaining:** Formal spec documentation (Phase 1 docs), gas metering for Rust modules, and cleanup items below. All implementation and integration testing is complete.
 
 ---
 
 ## Open Questions
 
-1. **Error handling:** Should handler return error codes or panic? (Suggest: return codes, panic as fallback)
+1. **Error handling:** Should handler return error codes or panic? (Current: return codes, panic surfaces as wasmtime trap)
 
-2. **Gas metering:** Use same gas model as AS or define Rust-specific costs?
+2. **Gas metering:** `parity_wasm` gas injection is bypassed for Rust modules. Need wasmtime fuel metering or a WASM-2.0-compatible gas injection tool. This is the main gap before an upstream PR.
 
-3. **API versioning:** Start at `0.0.1` or align with AS versions?
+3. **API versioning:** Start at `0.0.1` or align with AS versions? (Current manifest uses `apiVersion: 0.0.7` to match AS)
 
-4. **WASM features:** Require specific WASM features (bulk-memory, etc.)?
+4. **WASM features:** Resolved — Rust modules use standard WASM features (bulk-memory, reference-types, multivalue, sign-ext). These are handled natively by wasmtime 38; the parity_wasm bypass ensures they aren't stripped.
 
-5. **Debugging:** How to surface Rust panic messages to users?
+5. **Debugging:** How to surface Rust panic messages to users? (Currently panics surface as wasmtime traps with backtrace)
 
 ---
 
 ## Next Steps
 
-1. Review this plan
-2. Create graph-node fork
-3. Start with Phase 1 (ABI spec) to lock down the protocol
-4. Parallel work: Phase 2 (graph-node) and Phase 4 (SDK) can proceed together once spec is stable
+All implementation phases (1-5) are functionally complete. The SDK, graph-node fork, and integration tests all work end-to-end with real Ethereum mainnet data.
+
+### Towards upstream PR
+
+1. **Write formal ABI spec** (`docs/rust-abi-spec.md`) — document the protocol for potential upstream PR
+2. **Gas metering for Rust modules** — currently bypassed because `parity_wasm` can't parse modern WASM opcodes. Options: wasmtime fuel metering, or a WASM-2.0-compatible gas injection tool
+3. **Error handling test** — verify handler panics are caught, error codes surface correctly, deterministic errors are flagged
+4. **Push graph-node fork to GitHub** — currently local only at `/Users/pepe/Projects/graph-node`
+
+### Bugs found & fixed during live testing
+
+These are worth documenting for anyone working on the graph-node integration:
+
+1. **parity_wasm opcode 252** — `parity_wasm` (used for AS gas injection) can't parse modern WASM features like `memory.copy` (bulk-memory proposal). Fix in `mapping.rs`: detect Rust modules by scanning for `"graphite"` in raw bytes, skip parity_wasm pipeline entirely.
+2. **`id_of_type` not found** — AS-specific export required during module instantiation. Fix in `module/mod.rs`: `AscHeapCtx::new()` accepts `MappingLanguage` parameter, sets `id_of_type = None` for Rust.
+3. **`_start` not found** — AS entry point called after instantiation. Fix in `module/instance.rs`: skip `_start` call for Rust modules.
+4. **BigInt endianness mismatch** — SDK serialized BigInt as signed big-endian, graph-node deserialized as signed little-endian. Fix: SDK changed to little-endian (`to_signed_bytes_le`).
+
+### Cleanup (nice to have, not blocking)
+
+- [ ] Implement CLI `deploy` command (currently prints TODO)
+- [ ] Fix unused `Vec` import warning in ERC20 example codegen
+- [ ] Implement offchain/subgraph trigger serialization (currently stubbed as empty bytes)
+- [ ] Add more unit tests + `proptest` property-based testing
+- [ ] Consider a shared `graphite-abi` crate for TLV tag constants (used by both SDK and graph-node)
+- [ ] Performance comparison vs equivalent AssemblyScript subgraph
