@@ -22,3 +22,5 @@ alloy-json-abi = { workspace = true }
 heck = { workspace = true }
 toml = { workspace = true }
 graphql-parser = { workspace = true }
+ureq = { workspace = true }
+serde_yaml = { workspace = true }

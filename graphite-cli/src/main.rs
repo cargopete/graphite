@@ -8,6 +8,7 @@
 //! - `graphite deploy` — deploy to graph-node
 
 mod codegen;
+mod deploy;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -457,11 +458,6 @@ fn cmd_test(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn cmd_deploy(_node: Option<&str>, _ipfs: Option<&str>, _name: &str) -> Result<()> {
-    // TODO: Deploy subgraph
-    // - Build if not already built
-    // - Upload WASM and schema to IPFS
-    // - Register with graph-node
-    println!("  TODO: Deployment not yet implemented");
-    Ok(())
+fn cmd_deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> {
+    deploy::deploy(node, ipfs, name)
 }
