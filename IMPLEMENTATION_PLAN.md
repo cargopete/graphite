@@ -2,7 +2,7 @@
 
 This document outlines the changes required to enable Rust subgraphs in The Graph ecosystem. It covers modifications to both graph-node and the Graphite SDK.
 
-*Last updated: 2026-03-28*
+*Last updated: 2026-03-29*
 
 ---
 
@@ -416,26 +416,36 @@ chain/near/src/trigger.rs              (+10 lines) - ToRustBytes stub for NEAR
 core/src/subgraph/instance_manager.rs  (+5 lines)  - ToRustBytes trait bounds
 ```
 
+### graph-node (modified files, since initial PR)
+
+```
+runtime/wasm/src/mapping.rs            (+10 lines) - Wasmtime fuel metering config for Rust modules
+runtime/wasm/src/module/instance.rs    (+20 lines) - Fuel budget, OutOfFuel trap handling
+```
+
 ### graphite (modified files)
 
 ```
-graphite-macros/src/lib.rs         (~100 lines changed) - Handler macro
+graphite-macros/src/lib.rs         (~100 lines changed) - Handler macro with panic hook + decode error logging
 graphite/src/decode.rs             (+50 lines)  - FromWasmBytes trait
 graphite/src/primitives.rs         (+10 lines)  - BigInt LE serialization
-graphite/src/wasm/host.rs          (~5 lines)   - BigInt BE → LE fix
+graphite/src/wasm/host.rs          (+30 lines)  - BigInt BE → LE fix, store_get retry on buffer overflow
+graphite/src/wasm/alloc.rs         (+10 lines)  - Allocator bounds checking (4MB limit)
 graphite-cli/src/codegen/abi.rs    (+80 lines)  - Generate FromWasmBytes
 ```
 
 ### graphite (new files)
 
 ```
+graphite/src/wasm/panic.rs         - Panic hook forwarding to graph-node abort FFI
+graphite-cli/src/deploy.rs         - CLI deploy command (IPFS upload + JSON-RPC)
 tests/integration/                 - WASM integration test crate (wasmtime-based)
 scripts/live-test.sh               - Live deployment script
 examples/erc20/schema-live.graphql - Simplified schema for live test
 examples/erc20/subgraph-live.yaml  - Live test manifest config
 ```
 
-**Estimated total:** ~1,500 lines new code in graph-node, ~300 lines modified across both repos
+**Estimated total:** ~1,500 lines new code in graph-node, ~600 lines in graphite SDK
 
 ---
 
@@ -449,34 +459,40 @@ examples/erc20/subgraph-live.yaml  - Live test manifest config
 | 4 | Complete Graphite SDK | 2 days | **Done** |
 | 5 | Integration testing | 2-3 days | **Done** |
 
-**Remaining:** Formal spec documentation (Phase 1 docs), gas metering for Rust modules, and cleanup items below. All implementation and integration testing is complete.
+**Remaining:** Formal spec documentation (Phase 1 docs) and minor cleanup. All implementation, gas metering, error handling, and integration testing is complete. Draft PR open: [#6462](https://github.com/graphprotocol/graph-node/pull/6462).
 
 ---
 
 ## Open Questions
 
-1. **Error handling:** Should handler return error codes or panic? (Current: return codes, panic surfaces as wasmtime trap)
+1. **Error handling:** Resolved. Handlers return error codes (0 = success, non-zero = error). Panics are caught by a custom panic hook that forwards the message, file, and line number to graph-node via the `abort` FFI. Decode errors are logged via `log_log` before returning code 1.
 
-2. **Gas metering:** `parity_wasm` gas injection is bypassed for Rust modules. Need wasmtime fuel metering or a WASM-2.0-compatible gas injection tool. This is the main gap before an upstream PR.
+2. **Gas metering:** Resolved. Wasmtime fuel metering (`config.consume_fuel(true)`, `store.set_fuel(10B)`) provides deterministic per-instruction gas accounting. `Trap::OutOfFuel` is caught and reported as a deterministic error. Committed in graph-node PR [#6462](https://github.com/graphprotocol/graph-node/pull/6462).
 
-3. **API versioning:** Start at `0.0.1` or align with AS versions? (Current manifest uses `apiVersion: 0.0.7` to match AS)
+3. **API versioning:** Start at `0.0.1` or align with AS versions? (Current manifest uses `apiVersion: 0.0.7` to match AS). Decision deferred to upstream review.
 
 4. **WASM features:** Resolved — Rust modules use standard WASM features (bulk-memory, reference-types, multivalue, sign-ext). These are handled natively by wasmtime 38; the parity_wasm bypass ensures they aren't stripped.
 
-5. **Debugging:** How to surface Rust panic messages to users? (Currently panics surface as wasmtime traps with backtrace)
+5. **Debugging:** Resolved. Custom panic hook in `graphite/src/wasm/panic.rs` calls graph-node's `abort` with the full panic message including file and line number. Decode errors are logged with type name, handler name, and error details.
 
 ---
 
 ## Next Steps
 
-All implementation phases (1-5) are functionally complete. The SDK, graph-node fork, and integration tests all work end-to-end with real Ethereum mainnet data.
+All implementation phases (1-5) are functionally complete. Gas metering, error handling, and the CLI deploy command are all implemented. The SDK, graph-node fork, and integration tests all work end-to-end with real Ethereum mainnet data.
 
-### Towards upstream PR
+### Done since last update
 
-1. **Write formal ABI spec** (`docs/rust-abi-spec.md`) — document the protocol for potential upstream PR
-2. **Gas metering for Rust modules** — currently bypassed because `parity_wasm` can't parse modern WASM opcodes. Options: wasmtime fuel metering, or a WASM-2.0-compatible gas injection tool
-3. **Error handling test** — verify handler panics are caught, error codes surface correctly, deterministic errors are flagged
-4. **Push graph-node fork to GitHub** — currently local only at `/Users/pepe/Projects/graph-node`
+- [x] **Gas metering** — wasmtime fuel metering for Rust modules (10B fuel budget, `Trap::OutOfFuel` as deterministic error). Pushed to graph-node PR [#6462](https://github.com/graphprotocol/graph-node/pull/6462).
+- [x] **CLI deploy command** — full `graphite deploy` implementation: IPFS upload, manifest rewriting, JSON-RPC subgraph_create + subgraph_deploy.
+- [x] **Error handling** — panic hook (forwards panic message + file + line to graph-node via `abort`), allocator bounds checking (4MB limit), decode error logging (type, handler, error details surfaced via `log_log`), `store_get` retry on buffer overflow (16KB → 256KB).
+- [x] **Graph-node fork pushed** — `cargopete/graph-node`, branch `rust-abi-support`, draft PR [#6462](https://github.com/graphprotocol/graph-node/pull/6462).
+
+### Towards upstream merge
+
+1. **Write formal ABI spec** (`docs/rust-abi-spec.md`) — document the protocol for the upstream PR reviewers
+2. **Performance comparison** — benchmark Rust vs AS subgraphs (binary size, indexing speed, memory)
+3. **Address PR review feedback** — respond to any comments on [#6462](https://github.com/graphprotocol/graph-node/pull/6462)
 
 ### Bugs found & fixed during live testing
 
@@ -489,9 +505,8 @@ These are worth documenting for anyone working on the graph-node integration:
 
 ### Cleanup (nice to have, not blocking)
 
-- [ ] Implement CLI `deploy` command (currently prints TODO)
+- [x] ~~Implement CLI `deploy` command~~ — done
 - [ ] Fix unused `Vec` import warning in ERC20 example codegen
 - [ ] Implement offchain/subgraph trigger serialization (currently stubbed as empty bytes)
 - [ ] Add more unit tests + `proptest` property-based testing
 - [ ] Consider a shared `graphite-abi` crate for TLV tag constants (used by both SDK and graph-node)
-- [ ] Performance comparison vs equivalent AssemblyScript subgraph
