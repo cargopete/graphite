@@ -51,9 +51,9 @@ impl HostFunctions for WasmHost {
         let entity_type_ptr = alloc_str(entity_type);
         let id_ptr = alloc_str(id);
 
-        // Allocate output buffer (16KB should be enough for most entities)
-        const OUT_CAP: u32 = 16 * 1024;
-        let out_ptr = allocate(OUT_CAP);
+        // First attempt with 16KB buffer
+        const INITIAL_CAP: u32 = 16 * 1024;
+        let out_ptr = allocate(INITIAL_CAP);
 
         let len = unsafe {
             ffi::store_get(
@@ -62,12 +62,39 @@ impl HostFunctions for WasmHost {
                 id_ptr,
                 id.len() as u32,
                 out_ptr,
-                OUT_CAP,
+                INITIAL_CAP,
             )
         };
 
-        if len == 0 || len == u32::MAX {
-            return None;
+        if len == 0 {
+            return None; // Entity not found
+        }
+
+        if len == u32::MAX {
+            // Buffer too small — retry with a larger buffer (256KB)
+            const RETRY_CAP: u32 = 256 * 1024;
+            let retry_ptr = allocate(RETRY_CAP);
+            let retry_type_ptr = alloc_str(entity_type);
+            let retry_id_ptr = alloc_str(id);
+
+            let retry_len = unsafe {
+                ffi::store_get(
+                    retry_type_ptr,
+                    entity_type.len() as u32,
+                    retry_id_ptr,
+                    id.len() as u32,
+                    retry_ptr,
+                    RETRY_CAP,
+                )
+            };
+
+            if retry_len == 0 || retry_len == u32::MAX {
+                return None;
+            }
+
+            let bytes =
+                unsafe { core::slice::from_raw_parts(retry_ptr as *const u8, retry_len as usize) };
+            return deserialize_entity(bytes);
         }
 
         let bytes = unsafe { core::slice::from_raw_parts(out_ptr as *const u8, len as usize) };

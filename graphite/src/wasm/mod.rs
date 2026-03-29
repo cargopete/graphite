@@ -27,4 +27,7 @@ pub mod host;
 pub mod alloc;
 
 #[cfg(target_arch = "wasm32")]
+pub mod panic;
+
+#[cfg(target_arch = "wasm32")]
 pub use host::WasmHost;

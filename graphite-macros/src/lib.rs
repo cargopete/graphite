@@ -186,6 +186,9 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #[cfg(target_arch = "wasm32")]
         #[unsafe(no_mangle)]
         pub extern "C" fn #fn_name(event_ptr: u32, event_len: u32) -> u32 {
+            // Install panic hook (idempotent — only runs once)
+            graphite::wasm::panic::install();
+
             // SAFETY: graph-node passes valid ptr+len pointing to serialized event
             let bytes = unsafe {
                 core::slice::from_raw_parts(event_ptr as *const u8, event_len as usize)
@@ -194,7 +197,21 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
             // Deserialize the event from graph-node's TLV format
             let #param_name = match <#param_type as graphite::decode::FromWasmBytes>::from_wasm_bytes(bytes) {
                 Ok(e) => e,
-                Err(_) => return 1, // Deserialization error
+                Err(e) => {
+                    // Log the decode error so it shows up in graph-node logs
+                    let msg = alloc::format!(
+                        "Failed to decode {} in {}: {}",
+                        stringify!(#param_type),
+                        stringify!(#fn_name),
+                        e
+                    );
+                    let msg_ptr = msg.as_ptr() as u32;
+                    let msg_len = msg.len() as u32;
+                    unsafe {
+                        graphite::wasm::ffi::log_log(3, msg_ptr, msg_len); // 3 = Error
+                    }
+                    return 1;
+                }
             };
 
             // Create the WASM host for calling back into graph-node

@@ -11,14 +11,24 @@ const HEAP_START: u32 = 0x10000;
 /// Current allocation pointer.
 static HEAP_PTR: AtomicU32 = AtomicU32::new(HEAP_START);
 
+/// Maximum heap size (4MB — leaves room for stack in a 16MB WASM memory).
+const HEAP_MAX: u32 = 4 * 1024 * 1024;
+
 /// Allocate memory from the bump allocator.
 ///
 /// Exported for graph-node to call when it needs to write data into WASM memory.
+/// Aborts if allocation would exceed the heap limit.
 #[unsafe(no_mangle)]
 pub extern "C" fn allocate(size: u32) -> u32 {
     // Align to 8 bytes
     let aligned_size = (size + 7) & !7;
-    HEAP_PTR.fetch_add(aligned_size, Ordering::SeqCst)
+    let ptr = HEAP_PTR.fetch_add(aligned_size, Ordering::SeqCst);
+    if ptr + aligned_size > HEAP_START + HEAP_MAX {
+        // Roll back and abort — we're out of memory
+        HEAP_PTR.fetch_sub(aligned_size, Ordering::SeqCst);
+        core::arch::wasm32::unreachable();
+    }
+    ptr
 }
 
 /// Reset the arena allocator.
