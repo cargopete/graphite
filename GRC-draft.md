@@ -1,10 +1,6 @@
-# GRC-00X: Rust Subgraph Mappings — A Native Rust ABI for graph-node
-
 **Stage:** RFC (Request for Comment)
 **Authors:** [@cargopete](https://github.com/cargopete)
 **Related:** [graph-node PR #6462](https://github.com/graphprotocol/graph-node/pull/6462) · [Graphite SDK](https://github.com/cargopete/graphite)
-
----
 
 ## Summary
 
@@ -12,7 +8,7 @@ This GRC proposes adding first-class Rust support to graph-node as a second mapp
 
 A working implementation exists: the Graphite SDK compiles ERC20 handlers to WASM, and the graph-node fork has been live-tested indexing real USDC Transfer events from Ethereum mainnet via GraphQL.
 
----
+
 
 ## Motivation
 
@@ -28,7 +24,7 @@ Additional issues compound: no `Date` support (developers write 50-line timestam
 
 **The Graph has already validated this path.** Substreams uses Rust compiled to WASM and is described by the team as enabling "extremely high-performance indexing." This proposal extends that same foundation to the subgraph layer.
 
----
+
 
 ## Design
 
@@ -81,7 +77,7 @@ mapping:
       handler: handle_transfer
 ```
 
----
+
 
 ## Developer experience
 
@@ -124,7 +120,7 @@ fn transfer_creates_entity() {
 | Crate ecosystem | None | Full crates.io |
 | WASM performance | Baseline | ~2× faster |
 
----
+
 
 ## Implementation status
 
@@ -150,7 +146,7 @@ This is not a design-only proposal. A complete implementation exists and has bee
 
 Draft PR: [graphprotocol/graph-node#6462](https://github.com/graphprotocol/graph-node/pull/6462)
 
----
+
 
 ## Scope of graph-node changes
 
@@ -166,7 +162,7 @@ The change is additive. Existing AS subgraphs are unaffected.
 
 A new host function costs one entry in `rust_abi/host.rs` (a thin ptr+len wrapper over the existing `HostExports` method). No changes to the AS path.
 
----
+
 
 ## Open questions for community feedback
 
@@ -180,7 +176,7 @@ A new host function costs one entry in `rust_abi/host.rs` (a thin ptr+len wrappe
 
 5. **Long-term ABI evolution.** If the TLV format needs to change, what's the migration story? `apiVersion` in the manifest is the current answer, but we'd welcome input on whether a more formal versioning mechanism is warranted.
 
----
+
 
 ## References
 
