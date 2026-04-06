@@ -278,8 +278,24 @@ impl BigDecimal {
 
 impl fmt::Display for BigDecimal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Simplified display - proper implementation would handle scale
-        write!(f, "{}", self.value)
+        if self.scale == 0 {
+            return write!(f, "{}", self.value);
+        }
+        let s = self.value.to_string();
+        let (sign, digits) = if s.starts_with('-') {
+            ("-", &s[1..])
+        } else {
+            ("", s.as_str())
+        };
+        let scale = self.scale as usize;
+        if scale >= digits.len() {
+            // Need leading zeros after decimal point
+            let zeros = scale - digits.len();
+            write!(f, "{}0.{:0>width$}{}", sign, "", digits, width = zeros)
+        } else {
+            let (int_part, dec_part) = digits.split_at(digits.len() - scale);
+            write!(f, "{}{}.{}", sign, int_part, dec_part)
+        }
     }
 }
 

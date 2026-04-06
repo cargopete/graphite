@@ -31,3 +31,7 @@ pub mod panic;
 
 #[cfg(target_arch = "wasm32")]
 pub use host::WasmHost;
+
+/// Pure TLV codec — no FFI; available on all targets for testing.
+#[cfg(any(target_arch = "wasm32", test))]
+pub mod codec;

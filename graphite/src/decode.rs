@@ -270,7 +270,7 @@ impl<'a> TlvReader<'a> {
     pub fn read_bigint(&mut self) -> Result<BigInt, DecodeError> {
         let len = self.read_u32()? as usize;
         let bytes = self.read_bytes(len)?;
-        Ok(BigInt::from_signed_bytes_be(bytes))
+        Ok(BigInt::from_signed_bytes_le(bytes))
     }
 
     pub fn read_address(&mut self) -> Result<Address, DecodeError> {
@@ -313,8 +313,7 @@ impl<'a> TlvReader<'a> {
                 Ok(())
             }
             value_tag::BIGDECIMAL => {
-                // BigDecimal is scale:i64 + BigInt
-                self.read_bytes(8)?;
+                // BigDecimal is len:u32 + UTF-8 string bytes
                 let len = self.read_u32()? as usize;
                 self.read_bytes(len)?;
                 Ok(())
