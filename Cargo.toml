@@ -50,3 +50,10 @@ toml = "0.8"
 graphql-parser = "0.4"
 ureq = { version = "3", features = ["json"] }
 serde_yaml = "0.9"
+
+[profile.release]
+panic = "abort"
+lto = "fat"
+opt-level = "z"
+codegen-units = 1
+strip = true

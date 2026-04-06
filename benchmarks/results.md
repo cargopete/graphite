@@ -35,13 +35,36 @@ Compiled with `cargo build --target wasm32-unknown-unknown --release` and
 graph-cli applies to AS builds, applied here to both for a like-for-like
 comparison.
 
+The Rust release profile is now tuned for size in the workspace
+`Cargo.toml`:
+
+```toml
+[profile.release]
+panic = "abort"
+lto = "fat"
+opt-level = "z"
+codegen-units = 1
+strip = true
+```
+
 | Variant | AssemblyScript | Rust (Graphite) | Ratio |
 |---------|---------------:|----------------:|------:|
-| Raw release | 33,559 B (32.8 KB) | 107,259 B (104.7 KB) | 3.20× |
-| `wasm-opt -Oz` | 19,212 B (18.8 KB) | 77,219 B (75.4 KB) | 4.02× |
-| Raw, name section stripped (`wasm-strip`) | n/a (already stripped) | 92,786 B (90.6 KB) | 2.77× |
+| Raw release (default profile, historic) | 33,559 B (32.8 KB) | 107,259 B (104.7 KB) | 3.20× |
+| **Raw release (size-optimised profile)** | 33,559 B (32.8 KB) | **57,540 B (56.2 KB)** | **1.71×** |
+| `wasm-opt -Oz` (historic) | 19,212 B (18.8 KB) | 77,219 B (75.4 KB) | 4.02× |
+| **`wasm-opt -Oz` (size-optimised profile)** | 19,212 B (18.8 KB) | **50,105 B (48.9 KB)** | **2.61×** |
+| Raw, name section stripped (`wasm-strip`, historic default profile) | n/a (already stripped) | 92,786 B (90.6 KB) | 2.77× |
 
-The Rust binary is consistently ~3-4× larger. Section breakdown explains
+`wasm-opt` is invoked with
+`-Oz --enable-bulk-memory --enable-nontrapping-float-to-int` because
+rustc 1.94 emits `memory.copy`/`memory.fill` and saturating
+float-to-int instructions by default, which the Binaryen validator
+requires to be explicitly enabled.
+
+The size-optimised release profile alone removes **46.4 %** of the raw
+binary; combined with `wasm-opt -Oz` the total reduction versus the
+historic baseline is **53.3 %** (107,259 B → 50,105 B). The Rust binary
+is consistently ~1.7-2.6× the AS size. Section breakdown explains
 why:
 
 | Section | AS bytes | Rust bytes | Notes |
@@ -185,7 +208,7 @@ yarn install && yarn run codegen && yarn run build
 # Sizes
 ls -l /Users/pepe/Projects/graphite/target/wasm32-unknown-unknown/release/erc20_subgraph.wasm
 ls -l /Users/pepe/Projects/graphite/benchmarks/as-erc20/build/ERC20/ERC20.wasm
-wasm-opt -Oz <input> -o <output>
+wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int <input> -o <output>
 
 # Throughput
 cd /Users/pepe/Projects/graphite
@@ -207,7 +230,7 @@ a `[[bin]]` target on the existing `graphite-integration-tests` crate.
 | How fast is the Rust handler in isolation? | ~617 k Transfer events/sec, ~1.62 µs/event, on Apple Silicon under wasmtime 29 with no fuel metering. |
 | How much memory does each Rust handler invocation use? | 576 bytes of arena heap; total WASM memory plateaus at 1.12 MB. |
 | Did we measure AS throughput? | No. The AS ABI requires graph-node's `asc_abi` encoder to invoke. The honest comparison is end-to-end inside graph-node. |
-| Can we cut the Rust binary size? | Yes — strip `BigInt::Display`, drop `dlmalloc` in favour of the existing bump allocator, run `wasm-strip`. Order-of-magnitude estimate: 30-50 % reduction without touching the handler. |
+| Can we cut the Rust binary size? | Already done — size-tuned `[profile.release]` (`opt-level = "z"`, `lto = "fat"`, `panic = "abort"`, `codegen-units = 1`, `strip = true`) brings raw from 107,259 B to 57,540 B (-46.4 %), and `wasm-opt -Oz` further to 50,105 B (-53.3 % total). Remaining bloat is `num_bigint` (~8 KB) plus `dlmalloc` (~6 KB) plus `core::fmt` (~3-4 KB) — droppable later by replacing the allocator and stripping `BigInt::Display`. |
 
 The numbers above are raw measurements with no editorial spin. Where we
 could not measure cleanly we said so; nothing here is fabricated.
