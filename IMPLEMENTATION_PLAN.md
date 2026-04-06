@@ -2,7 +2,7 @@
 
 This document outlines the changes required to enable Rust subgraphs in The Graph ecosystem. It covers modifications to both graph-node and the Graphite SDK.
 
-*Last updated: 2026-03-29*
+*Last updated: 2026-04-06*
 
 ---
 
@@ -102,9 +102,9 @@ The protocol is fully designed (see above) and implemented on the SDK side (`gra
 
 - [x] Protocol design — function signatures, TLV format, event layout (this document)
 - [x] SDK-side implementation — `TlvReader`, `FromWasmBytes`, entity serialization in `WasmHost`
-- [ ] `docs/rust-abi-spec.md` in graph-node repo (formal standalone spec)
-- [ ] Shared constants for value tags (currently hardcoded on both sides — needs a shared crate or spec)
-- [ ] Test vectors for serialization (cross-validate SDK and graph-node implementations)
+- [x] `docs/rust-abi-spec.md` in graph-node repo (formal standalone spec)
+- [x] TLV tag bytes extracted to named constants (`tags::*` in `rust_abi/types.rs`) — single authoritative definition on the host side
+- [x] Test vectors for serialization — 51 SDK unit tests + proptest roundtrips, 12 graph-node unit tests, cross-validated byte-for-byte
 
 ---
 
@@ -385,7 +385,7 @@ test-subgraph/
 
 - [x] WASM integration test (`tests/integration/tests/wasm_handler.rs`) — loads ERC20 WASM with wasmtime, serializes a Transfer event using graph-node's exact `RustLogTrigger` binary format, calls `handle_transfer(ptr, len)`, captures and verifies `store_set` entity data. All fields validated: from, to, value, blockNumber, timestamp, transactionHash, id.
 - [x] Live integration test (`scripts/live-test.sh`) — deployed ERC20 subgraph to running graph-node fork, indexing real USDC Transfer events from Ethereum mainnet (block 24756400+), queried via GraphQL. Full pipeline verified: block ingestion → event scanning → Rust WASM handler → entity storage → GraphQL responses with correct from/to/value/blockNumber/timestamp fields.
-- [ ] Performance comparison vs AS equivalent
+- [x] Performance comparison — Rust handler throughput benchmark added (`benchmarks/`), Rust vs AS results documented. Binary size reduced 107 KB → 57 KB via release profile tuning.
 
 ---
 
@@ -443,6 +443,8 @@ tests/integration/                 - WASM integration test crate (wasmtime-based
 scripts/live-test.sh               - Live deployment script
 examples/erc20/schema-live.graphql - Simplified schema for live test
 examples/erc20/subgraph-live.yaml  - Live test manifest config
+examples/erc721/                   - ERC721 NFT subgraph example (Transfer + Approval + store_get)
+benchmarks/                        - Rust handler throughput benchmark
 ```
 
 **Estimated total:** ~1,500 lines new code in graph-node, ~600 lines in graphite SDK
@@ -479,7 +481,7 @@ examples/erc20/subgraph-live.yaml  - Live test manifest config
 
 ## Next Steps
 
-All implementation phases (1-5) are functionally complete. Gas metering, error handling, and the CLI deploy command are all implemented. The SDK, graph-node fork, and integration tests all work end-to-end with real Ethereum mainnet data.
+All implementation phases (1-5) are functionally complete. Gas metering, error handling, formal spec, test vectors, and the CLI deploy command are all implemented. The SDK, graph-node fork, and integration tests all work end-to-end with real Ethereum mainnet data.
 
 ### Done since last update
 
@@ -487,12 +489,20 @@ All implementation phases (1-5) are functionally complete. Gas metering, error h
 - [x] **CLI deploy command** — full `graphite deploy` implementation: IPFS upload, manifest rewriting, JSON-RPC subgraph_create + subgraph_deploy.
 - [x] **Error handling** — panic hook (forwards panic message + file + line to graph-node via `abort`), allocator bounds checking (4MB limit), decode error logging (type, handler, error details surfaced via `log_log`), `store_get` retry on buffer overflow (16KB → 256KB).
 - [x] **Graph-node fork pushed** — `cargopete/graph-node`, branch `rust-abi-support`, draft PR [#6462](https://github.com/graphprotocol/graph-node/pull/6462).
+- [x] **Formal ABI spec** — `docs/rust-abi-spec.md` written and pushed to graph-node PR.
+- [x] **TLV tag constants** — tag bytes extracted to `tags::*` named constants in `rust_abi/types.rs`; single authoritative definition.
+- [x] **Test vectors** — 51 SDK unit tests + proptest roundtrips; 12 graph-node unit tests; cross-validated ABI test vectors.
+- [x] **Six TLV decode bugs fixed** — BigInt/BigDecimal/Array decode bugs found and fixed via test vectors.
+- [x] **Binary size** — release profile tuned (`lto = fat`, `opt-level = z`, `strip = true`); 107 KB → 57 KB raw WASM.
+- [x] **Performance benchmarks** — Rust handler throughput benchmark added; Rust vs AS comparison documented.
+- [x] **ERC721 example** — NFT subgraph with Transfer + Approval handlers and `store_get` load-and-update pattern.
+- [x] **NEAR trigger stub** — `0xFF` sentinel documented; stub updated to explain the sentinel value and expected extension point.
 
 ### Towards upstream merge
 
-1. **Write formal ABI spec** (`docs/rust-abi-spec.md`) — document the protocol for the upstream PR reviewers
-2. **Performance comparison** — benchmark Rust vs AS subgraphs (binary size, indexing speed, memory)
-3. **Address PR review feedback** — respond to any comments on [#6462](https://github.com/graphprotocol/graph-node/pull/6462)
+1. **Address PR review feedback** — respond to any comments on [#6462](https://github.com/graphprotocol/graph-node/pull/6462)
+2. **Getting-started guide** — add end-to-end tutorial for new Graphite users (docs/getting-started.md)
+3. **Offchain/subgraph trigger serialization** — currently stubbed as empty bytes; needs full implementation for file data sources
 
 ### Bugs found & fixed during live testing
 
@@ -506,7 +516,8 @@ These are worth documenting for anyone working on the graph-node integration:
 ### Cleanup (nice to have, not blocking)
 
 - [x] ~~Implement CLI `deploy` command~~ — done
+- [x] ~~Add more unit tests + `proptest` property-based testing~~ — 51 SDK tests + proptest roundtrips done
+- [x] ~~Consider a shared `graphite-abi` crate for TLV tag constants~~ — resolved by extracting `tags::*` constants on the host side; SDK uses the spec as the source of truth
 - [ ] Fix unused `Vec` import warning in ERC20 example codegen
 - [ ] Implement offchain/subgraph trigger serialization (currently stubbed as empty bytes)
-- [ ] Add more unit tests + `proptest` property-based testing
-- [ ] Consider a shared `graphite-abi` crate for TLV tag constants (used by both SDK and graph-node)
+- [ ] Write end-to-end getting-started tutorial (docs/getting-started.md)

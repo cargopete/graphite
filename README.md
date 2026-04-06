@@ -2,21 +2,21 @@
 
 A Rust SDK for building subgraphs on [The Graph](https://thegraph.com/).
 
-**Status:** SDK complete, graph-node fork live-tested — indexing real USDC Transfer events from Ethereum mainnet via GraphQL (see [What's Next](#whats-next)).
+**Status:** Fully functional. Graph-node draft PR [#6462](https://github.com/graphprotocol/graph-node/pull/6462) open. Live-tested against USDC Transfer events on Ethereum mainnet.
 
 ## Why Graphite?
 
-AssemblyScript subgraphs suffer from broken nullable handling, missing closures, opaque compiler crashes, and a hostile debugging experience. Graphite provides a proper Rust alternative with:
+AssemblyScript subgraphs suffer from broken nullable handling, missing closures, opaque compiler crashes, and a hostile debugging experience. Graphite provides a proper Rust alternative:
 
 - **Type safety** — `Option<T>` instead of runtime null crashes
 - **Ergonomic APIs** — `#[derive(Entity)]` and `#[handler]` macros
-- **Native testing** — `cargo test` with mock host functions, no PostgreSQL required
+- **Native testing** — `cargo test` with `MockHost`, no PostgreSQL required
 - **Rust ecosystem** — iterators, closures, and crates that actually work
-- **~2× performance** — Rust WASM is faster than AssemblyScript
+- **~2× performance** — Rust WASM is faster than AssemblyScript (see [benchmarks](./benchmarks/))
 
 ## Architecture
 
-Graphite does **not** try to conform to AssemblyScript's memory layout. Instead, it defines a clean Rust-native ABI that requires modifications to graph-node:
+Graphite defines a clean Rust-native ABI that runs alongside the existing AssemblyScript path in graph-node — selected by `mapping.kind: wasm/rust` in the subgraph manifest. The `HostExports` layer (store, crypto, IPFS) is unchanged; only the serialization boundary is replaced.
 
 ```
                     ┌─────────────────────────┐
@@ -28,28 +28,25 @@ Graphite does **not** try to conform to AssemblyScript's memory layout. Instead,
               │                                     │
     ┌─────────┴─────────┐             ┌─────────────┴────────────┐
     │  AscAbiHost       │             │  RustAbiHost             │
-    │  (current code)   │             │  (new, in graph-node)    │
-    │  AscPtr<T>        │             │  ptr+len, simple serde   │
+    │  (existing code)  │             │  rust_abi/ in graph-node │
+    │  AscPtr<T>        │             │  ptr+len, TLV serde      │
     └───────────────────┘             └──────────────────────────┘
 ```
 
-**Graph-node changes required:**
-1. Detect `language: wasm/rust` in subgraph.yaml manifest
-2. Add `RustAbiHost` with ptr+len FFI protocol
-3. Use simple serialization (not AS TypedMap)
+See [docs/rust-abi-spec.md](https://github.com/cargopete/graph-node/blob/rust-abi-support/docs/rust-abi-spec.md) in the graph-node fork for the full wire-format spec.
 
-See [rfc-rust-subgraph.md](./rfc-rust-subgraph.md) for the full design.
-
-## Project Structure
+## Crate Structure
 
 ```
 graphite/
-├── graphite/           # Core SDK crate
-├── graphite-macros/    # Proc macros (#[derive(Entity)], #[handler])
-└── graphite-cli/       # CLI tooling (graphite init, codegen, build, deploy)
+├── graphite/           # Core SDK — primitives, host traits, TLV decode, MockHost
+├── graphite-macros/    # Proc macros — #[derive(Entity)], #[handler]
+└── graphite-cli/       # CLI — graphite init, codegen, build, deploy
 ```
 
 ## Quick Start
+
+See [docs/getting-started.md](./docs/getting-started.md) for a full walkthrough.
 
 ```rust
 use graphite::prelude::*;
@@ -58,67 +55,59 @@ use graphite::prelude::*;
 pub struct Transfer {
     #[id]
     id: String,
-    from: Address,
-    to: Address,
+    from: Bytes,
+    to: Bytes,
     value: BigInt,
 }
 
 #[handler]
-pub fn handle_transfer(host: &mut impl HostFunctions, event: &TransferEvent) {
+pub fn handle_transfer(event: TransferEvent) {
     let mut transfer = Transfer::new(&event.id());
-    transfer.from = event.from;
-    transfer.to = event.to;
+    transfer.from = Bytes::from_slice(event.from.as_slice());
+    transfer.to = Bytes::from_slice(event.to.as_slice());
     transfer.value = event.value.clone();
     transfer.save(host);
 }
 ```
 
-## Testing (works today)
+The `#[handler]` macro generates the `extern "C"` WASM entry point, reads the serialized trigger from graph-node, deserialises it, constructs a `WasmHost`, and calls your function. In native tests the same code runs with `MockHost`.
 
-Handlers run natively with `MockHost` — no WASM, no graph-node needed:
-
-```rust
-#[test]
-fn transfer_creates_entity() {
-    let mut host = MockHost::default();
-
-    let event = TransferEvent { /* ... */ };
-    handle_transfer(&mut host, &event);
-
-    assert_eq!(host.store.entity_count("Transfer"), 1);
-}
-```
-
-## Configuration
-
-Create a `graphite.toml` in your project root:
-
-```toml
-output_dir = "src/generated"
-schema = "schema.graphql"
-
-[[contracts]]
-name = "ERC20"
-abi = "abis/ERC20.json"
-```
-
-## CLI Usage
+## CLI
 
 ```bash
 graphite init my-subgraph --network mainnet
 graphite codegen       # Generate Rust types from ABI + schema
-graphite build         # Compile to WASM
+graphite build         # Compile to WASM (wasm32-unknown-unknown)
 graphite test          # Run tests (delegates to cargo test)
-graphite deploy myname/mysubgraph  # Deploy to graph-node (IPFS + JSON-RPC)
+graphite deploy myname/mysubgraph  # Upload to IPFS + deploy via JSON-RPC
+```
+
+## Examples
+
+| Example | Description |
+|---------|-------------|
+| [`examples/erc20`](./examples/erc20/) | Basic ERC20 Transfer indexer — shows entity creation, field mapping, and `save` |
+| [`examples/erc721`](./examples/erc721/) | ERC721 NFT tracker — shows multiple handlers, `store_get` load-and-update, and the mint/burn zero-address pattern |
+
+## Building and Testing
+
+```bash
+# Run all tests (native, no WASM toolchain needed)
+cargo test
+
+# Run the WASM integration test (requires wasm32 target)
+rustup target add wasm32-unknown-unknown
+cargo test -p integration
+
+# Build an example to WASM
+cargo build -p erc20-subgraph --target wasm32-unknown-unknown --release
 ```
 
 ## Status
 
-*Last updated: 2026-03-29*
+*Last updated: 2026-04-06*
 
-### SDK — complete
-
-All compiles, all tests pass. Graph-node draft PR: [#6462](https://github.com/graphprotocol/graph-node/pull/6462).
+### SDK
 
 | Component | Status |
 |-----------|--------|
@@ -126,14 +115,18 @@ All compiles, all tests pass. Graph-node draft PR: [#6462](https://github.com/gr
 | `HostFunctions` trait + `WasmHost` FFI + `MockHost` | Done |
 | `#[derive(Entity)]` + `#[handler]` macros | Done |
 | TLV deserialization (`FromWasmBytes`, `TlvReader`) | Done |
+| 51 TLV unit tests + proptest roundtrip suite | Done |
+| Six TLV decode bugs found and fixed | Done |
 | ABI + schema codegen | Done |
 | CLI (`init`, `codegen`, `build`, `test`, `deploy`) | Done |
 | Panic handler (forwards to graph-node `abort`) | Done |
-| Allocator bounds checking (4MB limit) | Done |
+| Allocator bounds checking (4 MiB limit) | Done |
 | Decode error logging (type + handler + error details) | Done |
+| Binary size optimised: 107 KB → 57 KB raw | Done |
 | ERC20 example subgraph | Done |
+| ERC721 example subgraph | Done |
 
-### Graph-node fork — complete
+### Graph-node fork
 
 Fork at [`cargopete/graph-node`](https://github.com/cargopete/graph-node), branch `rust-abi-support`. Draft PR [#6462](https://github.com/graphprotocol/graph-node/pull/6462).
 
@@ -144,17 +137,19 @@ Fork at [`cargopete/graph-node`](https://github.com/cargopete/graph-node), branc
 | Rust handler invocation (ptr+len calling convention, arena reset) | Done |
 | Skip AS-specific exports (`id_of_type`, `_start`, parity_wasm) | Done |
 | Wasmtime fuel metering (10B budget, `Trap::OutOfFuel`) | Done |
+| TLV tag bytes extracted to named constants (`tags::*`) | Done |
+| 12 graph-node unit tests + ABI test vectors for cross-validation | Done |
+| NEAR trigger stub with `0xFF` sentinel (documented behaviour) | Done |
+| Formal ABI spec (`docs/rust-abi-spec.md`) | Done |
 | Live integration test (USDC Transfers from Ethereum mainnet) | Done |
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for detailed breakdown.
+See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the detailed breakdown.
 
-<a id="whats-next"></a>
+## Links
 
-### What's next
-
-1. **Formal ABI spec** — `docs/rust-abi-spec.md` for the upstream PR
-2. **Performance comparison** — Rust vs AS benchmark
-3. **Address PR review feedback** on [#6462](https://github.com/graphprotocol/graph-node/pull/6462)
+- **Graph-node draft PR:** [graphprotocol/graph-node#6462](https://github.com/graphprotocol/graph-node/pull/6462)
+- **ABI spec:** [docs/rust-abi-spec.md](https://github.com/cargopete/graph-node/blob/rust-abi-support/docs/rust-abi-spec.md)
+- **RFC / GRC draft:** [GRC-draft.md](./GRC-draft.md)
 
 ## License
 
