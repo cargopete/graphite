@@ -16,6 +16,21 @@ pub fn generate_schema_entities(schema_path: &Path) -> Result<String> {
     let document: Document<'_, String> = graphql_parser::parse_schema(&schema_str)
         .map_err(|e| anyhow::anyhow!("Failed to parse schema: {}", e))?;
 
+    // Pre-scan to determine if any entity has list-typed fields
+    let needs_vec = document.definitions.iter().any(|def| {
+        if let Definition::TypeDefinition(TypeDefinition::Object(obj)) = def {
+            if !obj.directives.iter().any(|d| d.name == "entity") {
+                return false;
+            }
+            obj.fields.iter().any(|f| {
+                let rust_type = graphql_type_to_rust(&f.field_type);
+                rust_type.starts_with("Vec<")
+            })
+        } else {
+            false
+        }
+    });
+
     let mut output = String::new();
 
     // File header
@@ -28,7 +43,9 @@ pub fn generate_schema_entities(schema_path: &Path) -> Result<String> {
     writeln!(output, "extern crate alloc;")?;
     writeln!(output)?;
     writeln!(output, "use alloc::string::String;")?;
-    writeln!(output, "use alloc::vec::Vec;")?;
+    if needs_vec {
+        writeln!(output, "use alloc::vec::Vec;")?;
+    }
     writeln!(output, "use graphite::prelude::*;")?;
     writeln!(output)?;
 

@@ -18,6 +18,11 @@ pub fn generate_abi_bindings(abi_path: &Path, contract_name: &str) -> Result<Str
     let abi: JsonAbi = serde_json::from_str(&abi_json)
         .with_context(|| format!("Failed to parse ABI JSON: {}", abi_path.display()))?;
 
+    // Pre-scan to decide which imports are needed
+    let needs_vec = abi
+        .events()
+        .any(|e| e.inputs.iter().any(|p| p.ty.contains('[')));
+
     let mut output = String::new();
 
     // File header
@@ -32,7 +37,9 @@ pub fn generate_abi_bindings(abi_path: &Path, contract_name: &str) -> Result<Str
     writeln!(output)?;
     writeln!(output, "use alloc::format;")?;
     writeln!(output, "use alloc::string::String;")?;
-    writeln!(output, "use alloc::vec::Vec;")?;
+    if needs_vec {
+        writeln!(output, "use alloc::vec::Vec;")?;
+    }
     writeln!(output, "use graphite::prelude::*;")?;
     writeln!(output)?;
 
@@ -144,10 +151,14 @@ fn generate_event_decode_impl(event: &Event, struct_name: &str) -> Result<String
     // Expected number of topics: 1 (selector) + indexed params
     let expected_topics = 1 + indexed_params.len();
 
+    // If all params are indexed, the `data` argument will be unused
+    let has_non_indexed = event.inputs.iter().any(|p| !p.indexed);
+    let data_param = if has_non_indexed { "data" } else { "_data" };
+
     writeln!(output, "impl EventDecode for {} {{", struct_name)?;
     writeln!(output, "    const SELECTOR: [u8; 32] = {:?};", selector.0)?;
     writeln!(output)?;
-    writeln!(output, "    fn decode(topics: &[B256], data: &[u8]) -> Result<Self, DecodeError> {{")?;
+    writeln!(output, "    fn decode(topics: &[B256], {}: &[u8]) -> Result<Self, DecodeError> {{", data_param)?;
 
     // Check selector
     writeln!(output, "        // Verify selector")?;
