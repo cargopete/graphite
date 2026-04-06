@@ -8,6 +8,10 @@ publish = false
 name = "wasm_handler"
 harness = true
 
+[[bin]]
+name = "handler_throughput"
+path = "src/bin/handler_throughput.rs"
+
 [dependencies]
 wasmtime = "29"
 graphite = { path = "../../graphite" }
