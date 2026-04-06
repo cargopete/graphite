@@ -208,6 +208,57 @@ fn handle_transfer_end_to_end() {
 
     let mut linker = Linker::new(&engine);
 
+    // Link log_log — print to stdout for test visibility
+    linker
+        .func_wrap(
+            "graphite",
+            "log_log",
+            |mut caller: Caller<'_, ()>, level: u32, msg_ptr: u32, msg_len: u32| {
+                let mem = caller.get_export("memory").unwrap().into_memory().unwrap();
+                let data = mem.data(&caller);
+                let msg = std::str::from_utf8(
+                    &data[msg_ptr as usize..(msg_ptr + msg_len) as usize],
+                )
+                .unwrap_or("<invalid utf8>")
+                .to_string();
+                let level_str = match level {
+                    0 => "CRITICAL",
+                    1 => "ERROR",
+                    2 => "WARNING",
+                    3 => "INFO",
+                    4 => "DEBUG",
+                    _ => "LOG",
+                };
+                println!("[{}] {}", level_str, msg);
+            },
+        )
+        .unwrap();
+
+    // Link abort — called by the panic hook; treat as a test failure hint
+    linker
+        .func_wrap(
+            "graphite",
+            "abort",
+            |mut caller: Caller<'_, ()>,
+             msg_ptr: u32,
+             msg_len: u32,
+             _file_ptr: u32,
+             _file_len: u32,
+             _line: u32| {
+                let mem = caller.get_export("memory").unwrap().into_memory().unwrap();
+                let data = mem.data(&caller);
+                let msg = std::str::from_utf8(
+                    &data[msg_ptr as usize..(msg_ptr + msg_len) as usize],
+                )
+                .unwrap_or("<invalid utf8>")
+                .to_string();
+                eprintln!("[ABORT] {}", msg);
+                // Returning from abort causes an unreachable trap — that is correct
+                // behaviour; wasmtime will surface it as a Trap::UnreachableCodeReached.
+            },
+        )
+        .unwrap();
+
     // Link store_set — capture all calls
     let captured_clone = captured.clone();
     linker
