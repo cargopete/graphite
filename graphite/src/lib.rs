@@ -38,8 +38,11 @@ pub mod primitives;
 pub mod store;
 pub mod testing;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", test))]
 pub mod wasm;
+
+#[cfg(test)]
+mod abi_vectors_tests;
 
 /// Prelude module — import everything you need with `use graphite::prelude::*`
 pub mod prelude {
