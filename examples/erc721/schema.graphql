@@ -1,0 +1,42 @@
+# GraphQL schema for ERC721 NFT tracking
+
+type Token @entity {
+  "Token contract address"
+  id: ID!
+  "Current owner address"
+  owner: Bytes!
+  "Approved address for this token (if any)"
+  approved: Bytes
+}
+
+type Transfer @entity {
+  "tx_hash-log_index"
+  id: ID!
+  "Sender address (zero address for mints)"
+  from: Bytes!
+  "Recipient address (zero address for burns)"
+  to: Bytes!
+  "Token ID"
+  tokenId: BigInt!
+  "Block number"
+  blockNumber: BigInt!
+  "Block timestamp"
+  timestamp: BigInt!
+  "Transaction hash"
+  transactionHash: Bytes!
+}
+
+type Approval @entity {
+  "tx_hash-log_index"
+  id: ID!
+  "Token owner"
+  owner: Bytes!
+  "Approved address"
+  approved: Bytes!
+  "Token ID"
+  tokenId: BigInt!
+  "Block number"
+  blockNumber: BigInt!
+  "Transaction hash"
+  transactionHash: Bytes!
+}

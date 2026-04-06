@@ -1,0 +1,8 @@
+# Graphite subgraph configuration
+
+output_dir = "src/generated"
+schema = "schema.graphql"
+
+[[contracts]]
+name = "ERC721"
+abi = "abis/ERC721.json"
