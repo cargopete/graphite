@@ -50,3 +50,20 @@ pub mod prelude {
 
 // Re-export key types at crate root
 pub use primitives::{Address, BigDecimal, BigInt, Bytes, B256, U256};
+
+/// Context passed to every event handler alongside the decoded event.
+///
+/// Contains block and transaction metadata extracted from the EthereumEvent
+/// AS object by `graph_as_runtime::ethereum::read_ethereum_event`.
+pub struct EventContext {
+    /// Block number as little-endian BigInt bytes.
+    pub block_number: alloc::vec::Vec<u8>,
+    /// Block timestamp as little-endian BigInt bytes.
+    pub block_timestamp: alloc::vec::Vec<u8>,
+    /// Transaction hash (32 bytes).
+    pub tx_hash: [u8; 32],
+    /// Log index as little-endian BigInt bytes.
+    pub log_index: alloc::vec::Vec<u8>,
+    /// Contract address that emitted the event (20 bytes).
+    pub address: [u8; 20],
+}

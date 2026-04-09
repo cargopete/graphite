@@ -96,6 +96,46 @@ impl FromWasmBytes for ERC20ApprovalEvent {
     }
 }
 
+impl graph_as_runtime::ethereum::FromRawEvent for ERC20ApprovalEvent {
+    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
+        let owner = {
+            let _p = raw.params.iter().find(|p| p.name == "owner").ok_or("missing param: owner")?;
+            match &_p.value {
+                graph_as_runtime::ethereum::EthereumValue::Address(a) => Address::from(*a),
+                _ => return Err("wrong type for owner"),
+            }
+        };
+        let spender = {
+            let _p = raw.params.iter().find(|p| p.name == "spender").ok_or("missing param: spender")?;
+            match &_p.value {
+                graph_as_runtime::ethereum::EthereumValue::Address(a) => Address::from(*a),
+                _ => return Err("wrong type for spender"),
+            }
+        };
+        let value = {
+            let _p = raw.params.iter().find(|p| p.name == "value").ok_or("missing param: value")?;
+            match &_p.value {
+                graph_as_runtime::ethereum::EthereumValue::Uint(b) =>
+                    graphite::primitives::BigInt::from_signed_bytes_le(b),
+                graph_as_runtime::ethereum::EthereumValue::Int(b) =>
+                    graphite::primitives::BigInt::from_signed_bytes_le(b),
+                _ => return Err("wrong type for value"),
+            }
+        };
+
+        Ok(Self {
+            tx_hash:         B256(raw.tx_hash),
+            log_index:       graphite::primitives::BigInt::from_signed_bytes_le(&raw.log_index),
+            block_number:    graphite::primitives::BigInt::from_signed_bytes_le(&raw.block_number),
+            block_timestamp: graphite::primitives::BigInt::from_signed_bytes_le(&raw.block_timestamp),
+            address:         Address::from(raw.address),
+            owner,
+            spender,
+            value,
+        })
+    }
+}
+
 
 /// Event: `Transfer(address,address,uint256)`
 #[derive(Debug, Clone, PartialEq)]
@@ -179,6 +219,46 @@ impl FromWasmBytes for ERC20TransferEvent {
         // Parse as RawLog first (graph-node sends RustLogTrigger format)
         let raw_log = RawLog::from_wasm_bytes(bytes)?;
         Self::from_raw_log(&raw_log)
+    }
+}
+
+impl graph_as_runtime::ethereum::FromRawEvent for ERC20TransferEvent {
+    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
+        let from = {
+            let _p = raw.params.iter().find(|p| p.name == "from").ok_or("missing param: from")?;
+            match &_p.value {
+                graph_as_runtime::ethereum::EthereumValue::Address(a) => Address::from(*a),
+                _ => return Err("wrong type for from"),
+            }
+        };
+        let to = {
+            let _p = raw.params.iter().find(|p| p.name == "to").ok_or("missing param: to")?;
+            match &_p.value {
+                graph_as_runtime::ethereum::EthereumValue::Address(a) => Address::from(*a),
+                _ => return Err("wrong type for to"),
+            }
+        };
+        let value = {
+            let _p = raw.params.iter().find(|p| p.name == "value").ok_or("missing param: value")?;
+            match &_p.value {
+                graph_as_runtime::ethereum::EthereumValue::Uint(b) =>
+                    graphite::primitives::BigInt::from_signed_bytes_le(b),
+                graph_as_runtime::ethereum::EthereumValue::Int(b) =>
+                    graphite::primitives::BigInt::from_signed_bytes_le(b),
+                _ => return Err("wrong type for value"),
+            }
+        };
+
+        Ok(Self {
+            tx_hash:         B256(raw.tx_hash),
+            log_index:       graphite::primitives::BigInt::from_signed_bytes_le(&raw.log_index),
+            block_number:    graphite::primitives::BigInt::from_signed_bytes_le(&raw.block_number),
+            block_timestamp: graphite::primitives::BigInt::from_signed_bytes_le(&raw.block_timestamp),
+            address:         Address::from(raw.address),
+            from,
+            to,
+            value,
+        })
     }
 }
 

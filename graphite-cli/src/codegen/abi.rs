@@ -137,6 +137,10 @@ fn generate_event_struct(event: &Event, contract_name: &str) -> Result<String> {
     let wasm_impl = generate_from_wasm_bytes_impl(event, &struct_name)?;
     output.push_str(&wasm_impl);
 
+    // Generate FromRawEvent implementation for AS-ABI event reading
+    let raw_impl = generate_from_raw_event_impl(event, &struct_name)?;
+    output.push_str(&raw_impl);
+
     Ok(output)
 }
 
@@ -308,6 +312,209 @@ fn generate_from_wasm_bytes_impl(_event: &Event, struct_name: &str) -> Result<St
     writeln!(output)?;
 
     Ok(output)
+}
+
+/// Generate a `FromRawEvent` implementation for AS-ABI event reading.
+///
+/// This is used by the `#[handler]` macro's WASM entry point to decode
+/// event parameters from the `RawEthereumEvent` produced by
+/// `graph_as_runtime::ethereum::read_ethereum_event`.
+fn generate_from_raw_event_impl(event: &Event, struct_name: &str) -> Result<String> {
+    let mut output = String::new();
+
+    writeln!(
+        output,
+        "impl graph_as_runtime::ethereum::FromRawEvent for {} {{",
+        struct_name
+    )?;
+    writeln!(
+        output,
+        "    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {{"
+    )?;
+
+    // Generate param lookups for event-specific inputs
+    let mut seen_names = HashSet::new();
+    for (i, param) in event.inputs.iter().enumerate() {
+        let field_name = param_to_field_name(param, i, &mut seen_names);
+        let param_name_str = if param.name.is_empty() {
+            format!("param_{}", i)
+        } else {
+            param.name.clone()
+        };
+        let extract = raw_event_extract_expr(&param.ty, &param_name_str, &field_name);
+        writeln!(output, "        {}", extract)?;
+    }
+
+    writeln!(output)?;
+    writeln!(output, "        Ok(Self {{")?;
+    // Block/tx fields come from the raw event metadata
+    writeln!(output, "            tx_hash:         B256(raw.tx_hash),")?;
+    writeln!(
+        output,
+        "            log_index:       graphite::primitives::BigInt::from_signed_bytes_le(&raw.log_index),"
+    )?;
+    writeln!(
+        output,
+        "            block_number:    graphite::primitives::BigInt::from_signed_bytes_le(&raw.block_number),"
+    )?;
+    writeln!(
+        output,
+        "            block_timestamp: graphite::primitives::BigInt::from_signed_bytes_le(&raw.block_timestamp),"
+    )?;
+    writeln!(
+        output,
+        "            address:         Address::from(raw.address),"
+    )?;
+    // Event-specific params
+    seen_names.clear();
+    for (i, param) in event.inputs.iter().enumerate() {
+        let field_name = param_to_field_name(param, i, &mut seen_names);
+        writeln!(output, "            {},", field_name)?;
+    }
+    writeln!(output, "        }})")?;
+    writeln!(output, "    }}")?;
+    writeln!(output, "}}")?;
+    writeln!(output)?;
+
+    Ok(output)
+}
+
+/// Generate the extraction expression for a single ABI param from `raw.params`.
+///
+/// Returns a `let field_name = ...;` statement string.
+fn raw_event_extract_expr(sol_type: &str, param_name: &str, field_name: &str) -> String {
+    let find = format!(
+        "raw.params.iter().find(|p| p.name == {:?}).ok_or(\"missing param: {}\")?",
+        param_name, param_name
+    );
+
+    let variant_match = match sol_type {
+        "address" => format!(
+            concat!(
+                "let {field} = {{\n",
+                "            let _p = {find};\n",
+                "            match &_p.value {{\n",
+                "                graph_as_runtime::ethereum::EthereumValue::Address(a) => Address::from(*a),\n",
+                "                _ => return Err(\"wrong type for {param}\"),\n",
+                "            }}\n",
+                "        }};"
+            ),
+            field = field_name,
+            find = find,
+            param = param_name,
+        ),
+        "bool" => format!(
+            concat!(
+                "let {field} = {{\n",
+                "            let _p = {find};\n",
+                "            match &_p.value {{\n",
+                "                graph_as_runtime::ethereum::EthereumValue::Bool(b) => *b,\n",
+                "                _ => return Err(\"wrong type for {param}\"),\n",
+                "            }}\n",
+                "        }};"
+            ),
+            field = field_name,
+            find = find,
+            param = param_name,
+        ),
+        "string" => format!(
+            concat!(
+                "let {field} = {{\n",
+                "            let _p = {find};\n",
+                "            match &_p.value {{\n",
+                "                graph_as_runtime::ethereum::EthereumValue::String(s) => s.clone(),\n",
+                "                _ => return Err(\"wrong type for {param}\"),\n",
+                "            }}\n",
+                "        }};"
+            ),
+            field = field_name,
+            find = find,
+            param = param_name,
+        ),
+        "bytes32" => format!(
+            concat!(
+                "let {field} = {{\n",
+                "            let _p = {find};\n",
+                "            match &_p.value {{\n",
+                "                graph_as_runtime::ethereum::EthereumValue::FixedBytes(b) => {{\n",
+                "                    let mut arr = [0u8; 32];\n",
+                "                    let n = b.len().min(32);\n",
+                "                    arr[..n].copy_from_slice(&b[..n]);\n",
+                "                    B256(arr)\n",
+                "                }},\n",
+                "                _ => return Err(\"wrong type for {param}\"),\n",
+                "            }}\n",
+                "        }};"
+            ),
+            field = field_name,
+            find = find,
+            param = param_name,
+        ),
+        s if s.starts_with("bytes") && s != "bytes" => {
+            // Fixed bytesN (N < 32)
+            format!(
+                concat!(
+                    "let {field} = {{\n",
+                    "            let _p = {find};\n",
+                    "            match &_p.value {{\n",
+                    "                graph_as_runtime::ethereum::EthereumValue::FixedBytes(b) => b.clone(),\n",
+                    "                _ => return Err(\"wrong type for {param}\"),\n",
+                    "            }}\n",
+                    "        }};"
+                ),
+                field = field_name,
+                find = find,
+                param = param_name,
+            )
+        }
+        "bytes" => format!(
+            concat!(
+                "let {field} = {{\n",
+                "            let _p = {find};\n",
+                "            match &_p.value {{\n",
+                "                graph_as_runtime::ethereum::EthereumValue::Bytes(b) => graphite::primitives::Bytes::from_slice(b),\n",
+                "                _ => return Err(\"wrong type for {param}\"),\n",
+                "            }}\n",
+                "        }};"
+            ),
+            field = field_name,
+            find = find,
+            param = param_name,
+        ),
+        s if s.starts_with("uint") || s.starts_with("int") => format!(
+            concat!(
+                "let {field} = {{\n",
+                "            let _p = {find};\n",
+                "            match &_p.value {{\n",
+                "                graph_as_runtime::ethereum::EthereumValue::Uint(b) =>\n",
+                "                    graphite::primitives::BigInt::from_signed_bytes_le(b),\n",
+                "                graph_as_runtime::ethereum::EthereumValue::Int(b) =>\n",
+                "                    graphite::primitives::BigInt::from_signed_bytes_le(b),\n",
+                "                _ => return Err(\"wrong type for {param}\"),\n",
+                "            }}\n",
+                "        }};"
+            ),
+            field = field_name,
+            find = find,
+            param = param_name,
+        ),
+        _ => format!(
+            concat!(
+                "let {field} = {{\n",
+                "            let _p = {find};\n",
+                "            match &_p.value {{\n",
+                "                graph_as_runtime::ethereum::EthereumValue::Bytes(b) => graphite::primitives::Bytes::from_slice(b),\n",
+                "                _ => return Err(\"wrong type for {param}\"),\n",
+                "            }}\n",
+                "        }};"
+            ),
+            field = field_name,
+            find = find,
+            param = param_name,
+        ),
+    };
+
+    variant_match
 }
 
 /// Generate an enum that encompasses all events from a contract.

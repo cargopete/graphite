@@ -130,17 +130,29 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 
 /// Attribute macro for handler functions.
 ///
-/// Generates the `extern "C"` wrapper that graph-node calls, handling
-/// event deserialization and memory management.
+/// Generates the `extern "C"` wrapper that graph-node calls, reading the
+/// EthereumEvent from AS memory via `graph_as_runtime::ethereum::read_ethereum_event`,
+/// constructing the typed event via `EventType::from_raw_event`, and delegating
+/// to the user's handler implementation.
+///
+/// # Signature
+///
+/// The user's function must take two parameters:
+/// - First: the event type (e.g. `TransferEvent`) — read from AS memory
+/// - Second: `ctx: &graphite::EventContext` — block/tx metadata
 ///
 /// # Example
 ///
 /// ```rust,ignore
 /// #[handler]
-/// pub fn handle_transfer(event: TransferEvent) {
+/// pub fn handle_transfer(event: &ERC20TransferEvent, ctx: &graphite::EventContext) {
 ///     // Handler logic here
 /// }
 /// ```
+///
+/// Expands to an `extern "C" fn handle_transfer(event_ptr: i32) -> i32` entry point
+/// for WASM builds, and a plain function (for native test builds) that the caller
+/// provides the decoded event and context to directly.
 #[proc_macro_attribute]
 pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
@@ -149,47 +161,67 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_inputs = &input.sig.inputs;
     let fn_vis = &input.vis;
 
-    // Extract the event parameter type
-    let event_param = fn_inputs.first().expect("Handler must have an event parameter");
+    // Extract the event parameter type from the first argument.
+    let event_param = fn_inputs.first().expect("Handler must have at least one parameter (event)");
     let (param_name, param_type) = match event_param {
         syn::FnArg::Typed(pat_type) => {
             let name = match &*pat_type.pat {
                 syn::Pat::Ident(ident) => &ident.ident,
-                _ => panic!("Expected identifier pattern"),
+                _ => panic!("Expected identifier pattern for event parameter"),
             };
             (name, &pat_type.ty)
         }
         _ => panic!("Handler cannot have self parameter"),
     };
 
-    // Generate the wrapper - named after the original function for graph-node to call
-    // e.g., handle_transfer becomes handle_transfer (the extern "C" entry point)
-    let impl_name = syn::Ident::new(&format!("__{}_impl", fn_name), fn_name.span());
+    // The impl function gets the original name suffixed with _impl.
+    let impl_name = syn::Ident::new(&format!("{}_impl", fn_name), fn_name.span());
 
     let expanded = quote! {
-        // The implementation function (for native testing with MockHost)
-        #fn_vis fn #impl_name<H: graphite::host::HostFunctions>(
-            host: &mut H,
-            #param_name: &#param_type
+        // ---------------------------------------------------------------
+        // Implementation function — contains the user's handler body.
+        // In native builds the test harness calls this directly.
+        // ---------------------------------------------------------------
+        #fn_vis fn #impl_name(
+            #param_name: &#param_type,
+            ctx: &graphite::EventContext,
         ) #fn_body
 
-        // Native (non-WASM) version - just calls impl with provided host
+        // ---------------------------------------------------------------
+        // Native (non-WASM) entry point — caller supplies event + context.
+        // Used by unit tests and the native test harness.
+        // ---------------------------------------------------------------
         #[cfg(not(target_arch = "wasm32"))]
-        #fn_vis fn #fn_name<H: graphite::host::HostFunctions>(
-            host: &mut H,
-            #param_name: &#param_type
+        #fn_vis fn #fn_name(
+            #param_name: &#param_type,
+            ctx: &graphite::EventContext,
         ) {
-            #impl_name(host, #param_name)
+            #impl_name(#param_name, ctx)
         }
 
-        // The extern "C" wrapper for WASM - this is what graph-node calls.
-        // TODO(Phase 2): generate AS-ABI-compatible entry point (single AscPtr i32 arg).
-        // The TLV implementation has been removed; this stub keeps the crate compiling
-        // while graph-as-runtime is being built.
+        // ---------------------------------------------------------------
+        // WASM entry point — called by graph-node with an AscPtr to the
+        // EthereumEvent object in linear memory.
+        // ---------------------------------------------------------------
         #[cfg(target_arch = "wasm32")]
         #[unsafe(no_mangle)]
-        pub extern "C" fn #fn_name(_event_ptr: i32) {
-            todo!("AS-ABI handler entry point not yet implemented — see Phase 2 of IMPLEMENTATION_PLAN.md")
+        pub extern "C" fn #fn_name(event_ptr: i32) -> i32 {
+            let raw = unsafe {
+                graph_as_runtime::ethereum::read_ethereum_event(event_ptr as u32)
+            };
+            let #param_name = match <#param_type as graph_as_runtime::ethereum::FromRawEvent>::from_raw_event(&raw) {
+                Ok(e) => e,
+                Err(_) => return 1,
+            };
+            let ctx = graphite::EventContext {
+                block_number:    raw.block_number.clone(),
+                block_timestamp: raw.block_timestamp.clone(),
+                tx_hash:         raw.tx_hash,
+                log_index:       raw.log_index.clone(),
+                address:         raw.address,
+            };
+            #impl_name(&#param_name, &ctx);
+            0
         }
     };
 
