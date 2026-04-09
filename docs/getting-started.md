@@ -111,7 +111,7 @@ abi = "abis/ERC20.json"
 Update `subgraph.yaml` with your contract address and start block:
 
 ```yaml
-specVersion: 0.0.5
+specVersion: 0.0.4
 schema:
   file: ./schema.graphql
 dataSources:
@@ -287,18 +287,32 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## 9. Deploy
 
+**Local graph-node:**
+
 ```bash
 graphite deploy --node http://localhost:8020 --ipfs http://localhost:5001 myname/my-subgraph
 ```
 
-This uploads the WASM and manifest to IPFS, then calls the graph-node JSON-RPC `subgraph_deploy` endpoint.
+**The Graph Studio:**
 
-For The Graph hosted service, use the hosted service node and IPFS URLs instead of localhost. The subgraph name must match what you've created in the hosted service dashboard.
+1. Create a subgraph at [studio.thegraph.com](https://thegraph.com/studio/) and copy your deploy key.
+2. Run:
+
+```bash
+graphite deploy \
+  --node https://api.studio.thegraph.com/deploy/ \
+  --ipfs https://api.thegraph.com/ipfs/ \
+  --deploy-key <YOUR_DEPLOY_KEY> \
+  --version-label v1.0.0 \
+  your-subgraph-slug
+```
+
+The CLI uploads the WASM, schema, and ABI to IPFS, rewrites the manifest with IPFS hashes, then calls the graph-node JSON-RPC `subgraph_deploy` endpoint. On success it prints the playground and query URLs.
 
 ---
 
 ## What's Next
 
-- The [examples/erc20](../examples/erc20/) directory is the full working reference — it's the one tested live on Arbitrum One.
-- [examples/erc721](../examples/erc721/) shows a similar pattern for NFT transfer indexing.
+- [examples/erc20](../examples/erc20/) — full ERC20 reference, live on The Graph Studio (Arbitrum One).
+- [examples/erc721](../examples/erc721/) — NFT transfer indexing, also live on Studio.
 - For anything the CLI doesn't cover, `cargo build` and `graphite deploy` can be used independently.

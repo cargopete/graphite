@@ -2,7 +2,7 @@
 
 Write [The Graph](https://thegraph.com/) subgraph handlers in Rust. The compiled WASM is AssemblyScript-ABI-compatible — unmodified graph-node accepts it as a standard subgraph.
 
-**Status: Working.** Tested live on Arbitrum One (USDC transfers). Zero graph-node changes required.
+**v1.0.0 — Live on The Graph Studio (Arbitrum One).** ERC20 and ERC721 subgraphs deployed and indexing on the decentralised network. Zero graph-node changes required.
 
 ## What It Is
 
@@ -22,7 +22,7 @@ graphite-macros  (#[handler], #[derive(Entity)])
 graph-as-runtime  (AS ABI layer: allocator, UTF-16LE strings, TypedMap, host imports)
       │
       ▼
-WASM binary  ──────────────────►  unmodified graph-node
+WASM binary  ──────────────────►  unmodified graph-node / The Graph Studio
 ```
 
 ## Quick Example
@@ -57,7 +57,21 @@ See [examples/erc20/src/lib.rs](examples/erc20/src/lib.rs) for the full working 
 graphite init my-subgraph          # Scaffold a new subgraph project
 graphite codegen                   # Generate Rust types from ABI + schema
 graphite build                     # Compile to WASM (runs cargo + wasm-opt)
-graphite deploy myname/mysubgraph  # Upload to IPFS + deploy via JSON-RPC
+graphite deploy myname/mysubgraph  # Deploy to local graph-node
+
+# Deploy to The Graph Studio
+graphite deploy \
+  --node https://api.studio.thegraph.com/deploy/ \
+  --ipfs https://api.thegraph.com/ipfs/ \
+  --deploy-key <YOUR_DEPLOY_KEY> \
+  --version-label v1.0.0 \
+  my-subgraph-slug
+```
+
+Install the CLI:
+
+```bash
+cargo install --git https://github.com/cargopete/graphite.git graphite-cli
 ```
 
 ## Crate Structure
@@ -71,8 +85,8 @@ graphite deploy myname/mysubgraph  # Upload to IPFS + deploy via JSON-RPC
 
 ## Examples
 
-- [examples/erc20](examples/erc20/) — ERC20 Transfer indexer (the live-tested reference)
-- [examples/erc721](examples/erc721/) — ERC721 NFT transfer indexer
+- [examples/erc20](examples/erc20/) — ERC20 Transfer indexer (live on The Graph Studio, Arbitrum One)
+- [examples/erc721](examples/erc721/) — ERC721 NFT transfer indexer (live on The Graph Studio, Arbitrum One)
 
 ## Documentation
 

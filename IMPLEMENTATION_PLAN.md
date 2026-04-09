@@ -144,3 +144,14 @@ The native path (non-wasm32) continues to use `MockHost` with no AS memory invol
 - README updated to reflect current state.
 - CLI `build` / `deploy` commands verified end-to-end.
 - `examples/erc20/README.md` updated.
+
+---
+
+## Phase 6 — v1.0.0 ✓ Done
+
+- ERC20 and ERC721 subgraphs deployed live to **The Graph Studio** (Arbitrum One).
+- `graphite deploy` extended with `--deploy-key` and `--version-label` flags for Studio support.
+- CI pipeline (GitHub Actions) running on every push: `cargo test`, WASM build, fmt + clippy.
+- Native test suite: 6 ERC721 tests, all passing without Docker or graph-node.
+- `store.get` / entity loading implemented for both WASM and native paths.
+- Version bumped to `1.0.0` across all workspace crates.
