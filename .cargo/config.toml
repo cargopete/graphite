@@ -1,0 +1,15 @@
+# Disable WASM features that graph-node's Wasmer runtime doesn't support.
+# bulk-memory (opcode 0xfc) causes "Unknown opcode 252" failures at subgraph start.
+# reference-types also needs disabling to ensure full Wasmer 1.x compat.
+#
+# NOTE: As of Rust 1.87+, bulk-memory is a baseline feature for wasm32-unknown-unknown
+# and -C target-feature=-bulk-memory is IGNORED by rustc/LLVM. The flags are kept here
+# for older toolchains, but a wasm-opt post-processing step is required for 1.87+:
+#
+#   wasm-opt <input.wasm> --enable-bulk-memory --llvm-memory-copy-fill-lowering -Oz -o <output.wasm>
+#
+# This lowers memory.copy/memory.fill to MVP byte-by-byte loops that Wasmer 1.x supports.
+[target.wasm32-unknown-unknown]
+rustflags = [
+    "-C", "target-feature=-bulk-memory,-reference-types",
+]

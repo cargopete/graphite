@@ -219,6 +219,30 @@ mod tests {
     }
 
     #[test]
+    fn load_returns_none_for_missing_entity() {
+        mock::reset();
+        assert!(Token::load("nonexistent").is_none());
+        assert!(Transfer::load("nonexistent").is_none());
+    }
+
+    #[test]
+    fn load_returns_saved_entity_and_can_be_resaved() {
+        mock::reset();
+
+        handle_transfer_impl(&mock_transfer_event());
+
+        let token_id_str = "0700000000000000";
+
+        // load() should find the entity the handler wrote
+        let token = Token::load(token_id_str).expect("Token should exist after transfer");
+
+        // Round-trip: re-save the loaded entity, store should still have it
+        token.save();
+        assert!(mock::has_entity("Token", token_id_str));
+        mock::assert_entity("Token", token_id_str).field_bytes("owner", &[0xbb; 20]);
+    }
+
+    #[test]
     fn transfer_ownership_change() {
         mock::reset();
 

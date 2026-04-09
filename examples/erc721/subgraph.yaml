@@ -4,12 +4,12 @@ schema:
 dataSources:
   - kind: ethereum
     name: ERC721
-    network: mainnet
+    network: arbitrum-one
     source:
-      # CryptoPunks (wrapped) on mainnet — replace with your target contract
-      address: "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB"
+      # Smol Brains NFT — Arbitrum One (TreasureDAO)
+      address: "0x6325439389E0797Ab35752B4F43a14C004f22A9C"
       abi: ERC721
-      startBlock: 3914495
+      startBlock: 1800000
     mapping:
       kind: wasm/rust
       apiVersion: 0.0.7

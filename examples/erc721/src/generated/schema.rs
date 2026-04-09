@@ -68,6 +68,51 @@ impl Token {
         }
         STORE.with(|s| s.borrow_mut().set_entity("Token", &self.id, fields));
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn load(id: &str) -> Option<Self> {
+        let entity_ptr = graph_as_runtime::as_types::new_asc_string("Token");
+        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);
+        let map_ptr = unsafe { graph_as_runtime::ffi::store_get(entity_ptr, id_ptr) };
+        if map_ptr == 0 {
+            return None;
+        }
+        let fields = unsafe { graph_as_runtime::store_read::read_typed_map(map_ptr) };
+        let get = |k: &str| {
+            fields
+                .iter()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.clone())
+        };
+        Some(Self {
+            id: id.into(),
+            owner: get("owner").and_then(|v| v.as_bytes()),
+            approved: get("approved").and_then(|v| v.as_bytes()),
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load(id: &str) -> Option<Self> {
+        use graph_as_runtime::native_store::{FieldValue, STORE};
+        let fields = STORE.with(|s| s.borrow().get_entity("Token", id).cloned())?;
+        Some(Self {
+            id: id.into(),
+            owner: fields.get("owner").and_then(|v| {
+                if let FieldValue::Bytes(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            approved: fields.get("approved").and_then(|v| {
+                if let FieldValue::Bytes(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+        })
+    }
 }
 
 /// Generated from `Transfer` entity in schema.graphql.
@@ -179,6 +224,83 @@ impl Transfer {
         }
         STORE.with(|s| s.borrow_mut().set_entity("Transfer", &self.id, fields));
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn load(id: &str) -> Option<Self> {
+        let entity_ptr = graph_as_runtime::as_types::new_asc_string("Transfer");
+        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);
+        let map_ptr = unsafe { graph_as_runtime::ffi::store_get(entity_ptr, id_ptr) };
+        if map_ptr == 0 {
+            return None;
+        }
+        let fields = unsafe { graph_as_runtime::store_read::read_typed_map(map_ptr) };
+        let get = |k: &str| {
+            fields
+                .iter()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.clone())
+        };
+        Some(Self {
+            id: id.into(),
+            from: get("from").and_then(|v| v.as_bytes()),
+            to: get("to").and_then(|v| v.as_bytes()),
+            token_id: get("tokenId").and_then(|v| v.as_bytes()),
+            block_number: get("blockNumber").and_then(|v| v.as_bytes()),
+            timestamp: get("timestamp").and_then(|v| v.as_bytes()),
+            transaction_hash: get("transactionHash").and_then(|v| v.as_bytes()),
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load(id: &str) -> Option<Self> {
+        use graph_as_runtime::native_store::{FieldValue, STORE};
+        let fields = STORE.with(|s| s.borrow().get_entity("Transfer", id).cloned())?;
+        Some(Self {
+            id: id.into(),
+            from: fields.get("from").and_then(|v| {
+                if let FieldValue::Bytes(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            to: fields.get("to").and_then(|v| {
+                if let FieldValue::Bytes(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            token_id: fields.get("tokenId").and_then(|v| {
+                if let FieldValue::BigInt(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            block_number: fields.get("blockNumber").and_then(|v| {
+                if let FieldValue::BigInt(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            timestamp: fields.get("timestamp").and_then(|v| {
+                if let FieldValue::BigInt(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            transaction_hash: fields.get("transactionHash").and_then(|v| {
+                if let FieldValue::Bytes(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+        })
+    }
 }
 
 /// Generated from `Approval` entity in schema.graphql.
@@ -276,5 +398,74 @@ impl Approval {
             fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone()));
         }
         STORE.with(|s| s.borrow_mut().set_entity("Approval", &self.id, fields));
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn load(id: &str) -> Option<Self> {
+        let entity_ptr = graph_as_runtime::as_types::new_asc_string("Approval");
+        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);
+        let map_ptr = unsafe { graph_as_runtime::ffi::store_get(entity_ptr, id_ptr) };
+        if map_ptr == 0 {
+            return None;
+        }
+        let fields = unsafe { graph_as_runtime::store_read::read_typed_map(map_ptr) };
+        let get = |k: &str| {
+            fields
+                .iter()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.clone())
+        };
+        Some(Self {
+            id: id.into(),
+            owner: get("owner").and_then(|v| v.as_bytes()),
+            approved: get("approved").and_then(|v| v.as_bytes()),
+            token_id: get("tokenId").and_then(|v| v.as_bytes()),
+            block_number: get("blockNumber").and_then(|v| v.as_bytes()),
+            transaction_hash: get("transactionHash").and_then(|v| v.as_bytes()),
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load(id: &str) -> Option<Self> {
+        use graph_as_runtime::native_store::{FieldValue, STORE};
+        let fields = STORE.with(|s| s.borrow().get_entity("Approval", id).cloned())?;
+        Some(Self {
+            id: id.into(),
+            owner: fields.get("owner").and_then(|v| {
+                if let FieldValue::Bytes(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            approved: fields.get("approved").and_then(|v| {
+                if let FieldValue::Bytes(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            token_id: fields.get("tokenId").and_then(|v| {
+                if let FieldValue::BigInt(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            block_number: fields.get("blockNumber").and_then(|v| {
+                if let FieldValue::BigInt(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+            transaction_hash: fields.get("transactionHash").and_then(|v| {
+                if let FieldValue::Bytes(b) = v {
+                    Some(b.clone())
+                } else {
+                    None
+                }
+            }),
+        })
     }
 }

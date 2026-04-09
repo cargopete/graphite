@@ -206,10 +206,147 @@ fn generate_entity_struct<'a>(name: &str, fields: &'a [Field<'a, String>]) -> Re
         name
     )?;
     writeln!(output, "    }}")?;
+    writeln!(output)?;
+
+    // load() — WASM: reads from graph-node via store.get + AS memory walk
+    writeln!(output, "    #[cfg(target_arch = \"wasm32\")]")?;
+    writeln!(output, "    pub fn load(id: &str) -> Option<Self> {{")?;
+    writeln!(
+        output,
+        "        let entity_ptr = graph_as_runtime::as_types::new_asc_string({:?});",
+        name
+    )?;
+    writeln!(
+        output,
+        "        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);"
+    )?;
+    writeln!(
+        output,
+        "        let map_ptr = unsafe {{ graph_as_runtime::ffi::store_get(entity_ptr, id_ptr) }};"
+    )?;
+    writeln!(output, "        if map_ptr == 0 {{")?;
+    writeln!(output, "            return None;")?;
+    writeln!(output, "        }}")?;
+    writeln!(
+        output,
+        "        let fields = unsafe {{ graph_as_runtime::store_read::read_typed_map(map_ptr) }};"
+    )?;
+    writeln!(
+        output,
+        "        let get = |k: &str| fields.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());"
+    )?;
+    writeln!(output, "        Some(Self {{")?;
+    writeln!(output, "            id: id.into(),")?;
+    for field in fields {
+        if field.name == "id" {
+            continue;
+        }
+        let field_name = field.name.to_snake_case();
+        let gql_name = &field.name;
+        let decode = wasm_load_field_decode(&field.field_type, &field_name, gql_name);
+        output.push_str(&decode);
+    }
+    writeln!(output, "        }})")?;
+    writeln!(output, "    }}")?;
+    writeln!(output)?;
+
+    // load() — native: reads from the thread-local NativeStore
+    writeln!(output, "    #[cfg(not(target_arch = \"wasm32\"))]")?;
+    writeln!(output, "    pub fn load(id: &str) -> Option<Self> {{")?;
+    writeln!(
+        output,
+        "        use graph_as_runtime::native_store::{{FieldValue, STORE}};"
+    )?;
+    writeln!(
+        output,
+        "        let fields = STORE.with(|s| s.borrow().get_entity({:?}, id).cloned())?;",
+        name
+    )?;
+    writeln!(output, "        Some(Self {{")?;
+    writeln!(output, "            id: id.into(),")?;
+    for field in fields {
+        if field.name == "id" {
+            continue;
+        }
+        let field_name = field.name.to_snake_case();
+        let gql_name = &field.name;
+        let decode = native_load_field_decode(&field.field_type, &field_name, gql_name);
+        output.push_str(&decode);
+    }
+    writeln!(output, "        }})")?;
+    writeln!(output, "    }}")?;
 
     writeln!(output, "}}")?;
 
     Ok(output)
+}
+
+/// Generate the field decode line for WASM `load()` using `StoreValue`.
+fn wasm_load_field_decode<'a>(
+    ty: &'a Type<'a, String>,
+    field_name: &str,
+    gql_name: &str,
+) -> String {
+    if matches!(ty, Type::ListType(_))
+        || matches!(ty, Type::NonNullType(inner) if matches!(inner.as_ref(), Type::ListType(_)))
+    {
+        return format!("            {}: None,\n", field_name);
+    }
+    let base = get_base_scalar(ty);
+    match base {
+        "ID" | "String" => format!(
+            "            {}: get({:?}).and_then(|v| v.as_string().map(|s| s.to_string())),\n",
+            field_name, gql_name
+        ),
+        "Boolean" => format!(
+            "            {}: get({:?}).and_then(|v| v.as_bool()),\n",
+            field_name, gql_name
+        ),
+        "Int" => format!(
+            "            {}: get({:?}).and_then(|v| v.as_i32()),\n",
+            field_name, gql_name
+        ),
+        _ => format!(
+            "            {}: get({:?}).and_then(|v| v.as_bytes()),\n",
+            field_name, gql_name
+        ),
+    }
+}
+
+/// Generate the field decode line for native `load()` using `FieldValue`.
+fn native_load_field_decode<'a>(
+    ty: &'a Type<'a, String>,
+    field_name: &str,
+    gql_name: &str,
+) -> String {
+    if matches!(ty, Type::ListType(_))
+        || matches!(ty, Type::NonNullType(inner) if matches!(inner.as_ref(), Type::ListType(_)))
+    {
+        return format!("            {}: None,\n", field_name);
+    }
+    let base = get_base_scalar(ty);
+    match base {
+        "ID" | "String" => format!(
+            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::String(s) = v {{ Some(s.clone()) }} else {{ None }}),\n",
+            field_name, gql_name
+        ),
+        "Boolean" => format!(
+            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::Bool(b) = v {{ Some(*b) }} else {{ None }}),\n",
+            field_name, gql_name
+        ),
+        "Int" => format!(
+            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::Int(n) = v {{ Some(*n) }} else {{ None }}),\n",
+            field_name, gql_name
+        ),
+        "BigInt" | "BigDecimal" => format!(
+            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::BigInt(b) = v {{ Some(b.clone()) }} else {{ None }}),\n",
+            field_name, gql_name
+        ),
+        _ => format!(
+            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::Bytes(b) = v {{ Some(b.clone()) }} else {{ None }}),\n",
+            field_name, gql_name
+        ),
+    }
 }
 
 /// Generate the native `fields.insert(...)` call for a given field.

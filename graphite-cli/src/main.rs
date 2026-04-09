@@ -431,15 +431,21 @@ fn cmd_build(release: bool) -> Result<()> {
     std::fs::copy(&wasm_file, &output_file)?;
     println!("  Copied to: {}", output_file.display());
 
-    // Try to optimize with wasm-opt if available
-    if let Ok(status) = std::process::Command::new("wasm-opt")
+    // Optimize with wasm-opt.
+    // --enable-bulk-memory --llvm-memory-copy-fill-lowering is required:
+    // Rust 1.87+ emits memory.copy/memory.fill bulk-memory opcodes (0xFC prefix)
+    // that older graph-node versions reject. This flag lowers them to loops.
+    let wasm_opt_result = std::process::Command::new("wasm-opt")
+        .arg("--enable-bulk-memory")
+        .arg("--llvm-memory-copy-fill-lowering")
         .arg("-Oz")
         .arg(&output_file)
         .arg("-o")
         .arg(&output_file)
-        .status()
-    {
-        if status.success() {
+        .status();
+
+    match wasm_opt_result {
+        Ok(s) if s.success() => {
             let optimized_size = std::fs::metadata(&output_file)?.len();
             println!(
                 "  Optimized with wasm-opt: {:.1} KB → {:.1} KB",
@@ -447,8 +453,15 @@ fn cmd_build(release: bool) -> Result<()> {
                 optimized_size as f64 / 1024.0
             );
         }
-    } else {
-        println!("  (wasm-opt not found, skipping optimization)");
+        Ok(_) => {
+            anyhow::bail!("wasm-opt failed — check the output above");
+        }
+        Err(_) => {
+            println!(
+                "  WARNING: wasm-opt not found. Install binaryen for graph-node compatibility."
+            );
+            println!("  Without it, graph-node may reject the WASM (bulk-memory opcodes).");
+        }
     }
 
     println!();

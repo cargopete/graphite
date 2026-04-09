@@ -41,6 +41,10 @@ pub mod as_types;
 #[cfg(target_arch = "wasm32")]
 pub mod entity;
 
+/// WASM-only: read AS TypedMap objects returned by store.get.
+#[cfg(target_arch = "wasm32")]
+pub mod store_read;
+
 /// WASM-only: panic handler that forwards to graph-node's abort.
 #[cfg(target_arch = "wasm32")]
 pub mod panic_handler;
