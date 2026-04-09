@@ -107,8 +107,8 @@ fn generate_from_raw_event_impl(event: &Event, struct_name: &str) -> Result<Stri
         } else {
             param.name.clone()
         };
-        let find_call = raw_find_call(&param.ty, &param_name_str);
-        writeln!(output, "        let {} = raw.{}?;", field_name, find_call)?;
+        let find_expr = raw_find_call(&param.ty, &param_name_str);
+        writeln!(output, "        let {} = {};", field_name, find_expr)?;
     }
 
     writeln!(output)?;
@@ -140,13 +140,57 @@ fn generate_from_raw_event_impl(event: &Event, struct_name: &str) -> Result<Stri
     Ok(output)
 }
 
-/// Return the `find_*` call expression for a given Solidity type.
+/// Return the complete RHS expression for decoding a parameter.
+///
+/// For scalar types this is `raw.find_*(name)?`.
+/// For array/fixed-array types this maps each element through the appropriate
+/// accessor and collects into a `Vec`.
+/// For tuple types this clones the decoded `Vec<EthereumValue>`.
 fn raw_find_call(sol_type: &str, param_name: &str) -> String {
+    // Dynamic array: `T[]`
+    if let Some(inner) = sol_type.strip_suffix("[]") {
+        let extractor = array_element_extractor(inner);
+        return format!(
+            "raw.find_array({:?}).map(|arr| arr.iter().filter_map(|v| {}).collect::<alloc::vec::Vec<_>>())?",
+            param_name, extractor
+        );
+    }
+
+    // Fixed-size array: `T[N]`
+    if sol_type.ends_with(']') {
+        if let Some(bracket) = sol_type.rfind('[') {
+            let inner = &sol_type[..bracket];
+            let extractor = array_element_extractor(inner);
+            return format!(
+                "raw.find_array({:?}).map(|arr| arr.iter().filter_map(|v| {}).collect::<alloc::vec::Vec<_>>())?",
+                param_name, extractor
+            );
+        }
+    }
+
+    // Tuple: `(T1,T2,...)` or keyword `tuple`
+    if sol_type.starts_with('(') || sol_type == "tuple" || sol_type.starts_with("tuple(") {
+        return format!("raw.find_tuple({:?}).map(|t| t.to_vec())?", param_name);
+    }
+
+    // Scalar types
     let method = solidity_find_method(sol_type);
-    format!("{}({:?})", method, param_name)
+    format!("raw.{}({:?})?", method, param_name)
 }
 
-/// Map a Solidity type to the appropriate `find_*` method on `RawEthereumEvent`.
+/// Return the `EthereumValue` accessor expression for an array element type.
+fn array_element_extractor(inner_type: &str) -> &'static str {
+    match inner_type {
+        "address" => "v.as_address()",
+        "bool" => "v.as_bool()",
+        "string" => "v.as_string().map(|s| s.to_string())",
+        s if s.starts_with("uint") => "v.as_uint()",
+        s if s.starts_with("int") => "v.as_int()",
+        _ => "v.as_bytes()",
+    }
+}
+
+/// Map a scalar Solidity type to the appropriate `find_*` method on `RawEthereumEvent`.
 fn solidity_find_method(sol_type: &str) -> &'static str {
     match sol_type {
         "address" => "find_address",
@@ -173,6 +217,11 @@ fn solidity_to_rust_type(sol_type: &str) -> String {
             let size = &sol_type[bracket_pos + 1..sol_type.len() - 1];
             return format!("[{}; {}]", solidity_to_rust_type(inner), size);
         }
+    }
+
+    // Tuple: `(T1,T2,...)` or keyword `tuple`
+    if sol_type.starts_with('(') || sol_type == "tuple" || sol_type.starts_with("tuple(") {
+        return "alloc::vec::Vec<graph_as_runtime::ethereum::EthereumValue>".to_string();
     }
 
     match sol_type {
@@ -261,5 +310,41 @@ mod tests {
         assert_eq!(solidity_to_rust_type("string"), "String");
         assert_eq!(solidity_to_rust_type("bool"), "bool");
         assert_eq!(solidity_to_rust_type("bytes"), "Vec<u8>");
+    }
+
+    #[test]
+    fn array_type_mapping() {
+        assert_eq!(solidity_to_rust_type("uint256[]"), "Vec<Vec<u8>>");
+        assert_eq!(solidity_to_rust_type("address[]"), "Vec<[u8; 20]>");
+        assert_eq!(solidity_to_rust_type("bool[]"), "Vec<bool>");
+        assert_eq!(solidity_to_rust_type("string[]"), "Vec<String>");
+        assert_eq!(solidity_to_rust_type("uint256[3]"), "[Vec<u8>; 3]");
+    }
+
+    #[test]
+    fn tuple_type_mapping() {
+        assert!(solidity_to_rust_type("(uint256,address)").contains("EthereumValue"));
+        assert!(solidity_to_rust_type("tuple").contains("EthereumValue"));
+    }
+
+    #[test]
+    fn array_find_expression() {
+        let expr = raw_find_call("uint256[]", "amounts");
+        assert!(expr.contains("find_array"), "should use find_array");
+        assert!(expr.contains("as_uint"), "should map elements with as_uint");
+    }
+
+    #[test]
+    fn tuple_find_expression() {
+        let expr = raw_find_call("(uint256,address)", "params");
+        assert!(expr.contains("find_tuple"), "should use find_tuple");
+    }
+
+    #[test]
+    fn scalar_find_expression() {
+        let expr = raw_find_call("uint256", "value");
+        assert_eq!(expr, r#"raw.find_uint("value")?"#);
+        let expr = raw_find_call("address", "from");
+        assert_eq!(expr, r#"raw.find_address("from")?"#);
     }
 }

@@ -54,6 +54,13 @@ unsafe extern "C" {
     #[link_name = "ethereum.call"]
     pub fn ethereum_call(call: u32) -> u32;
 
+    /// `ethereum.decode(types: u32, data: u32) -> u32`
+    /// types:   AscPtr<AscString>  — Solidity type string e.g. `"(uint256,address)"`
+    /// data:    AscPtr<Bytes>      — ABI-encoded bytes to decode
+    /// returns: AscPtr<EthereumValue> or 0 on failure
+    #[link_name = "ethereum.decode"]
+    pub fn ethereum_decode(types: u32, data: u32) -> u32;
+
     // ========== Crypto ==========
 
     /// `crypto.keccak256(input: u32) -> u32`
@@ -128,6 +135,11 @@ pub unsafe fn log_log(level: u32, _message: u32) {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn ethereum_call(_call: u32) -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn ethereum_decode(_types: u32, _data: u32) -> u32 {
     0
 }
 

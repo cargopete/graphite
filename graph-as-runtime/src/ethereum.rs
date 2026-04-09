@@ -113,6 +113,7 @@ pub const KIND_TUPLE: u32 = 9;
 // ============================================================================
 
 /// A decoded Ethereum event parameter value.
+#[derive(Clone)]
 pub enum EthereumValue {
     Address([u8; 20]),
     FixedBytes(Vec<u8>),
@@ -123,10 +124,48 @@ pub enum EthereumValue {
     Uint(Vec<u8>),
     Bool(bool),
     String(String),
-    // Array and Tuple are recursive; skipped for MVP.
-    Array,
-    Tuple,
+    /// Dynamic array: `T[]`
+    Array(Vec<EthereumValue>),
+    /// Fixed-size array: `T[N]`
+    FixedArray(Vec<EthereumValue>),
+    /// Struct/tuple: `(T1, T2, ...)`
+    Tuple(Vec<EthereumValue>),
     Unknown(u32),
+}
+
+impl EthereumValue {
+    pub fn as_uint(&self) -> Option<Vec<u8>> {
+        if let EthereumValue::Uint(b) = self { Some(b.clone()) } else { None }
+    }
+    pub fn as_int(&self) -> Option<Vec<u8>> {
+        if let EthereumValue::Int(b) = self { Some(b.clone()) } else { None }
+    }
+    pub fn as_address(&self) -> Option<[u8; 20]> {
+        if let EthereumValue::Address(a) = self { Some(*a) } else { None }
+    }
+    pub fn as_bool(&self) -> Option<bool> {
+        if let EthereumValue::Bool(b) = self { Some(*b) } else { None }
+    }
+    pub fn as_bytes(&self) -> Option<Vec<u8>> {
+        match self {
+            EthereumValue::Bytes(b) | EthereumValue::FixedBytes(b) => Some(b.clone()),
+            _ => None,
+        }
+    }
+    pub fn as_string(&self) -> Option<&str> {
+        if let EthereumValue::String(s) = self { Some(s.as_str()) } else { None }
+    }
+    /// Returns the elements of an `Array` or `FixedArray` value.
+    pub fn as_array(&self) -> Option<&Vec<EthereumValue>> {
+        match self {
+            EthereumValue::Array(v) | EthereumValue::FixedArray(v) => Some(v),
+            _ => None,
+        }
+    }
+    /// Returns the elements of a `Tuple` value.
+    pub fn as_tuple(&self) -> Option<&Vec<EthereumValue>> {
+        if let EthereumValue::Tuple(v) = self { Some(v) } else { None }
+    }
 }
 
 /// A single named event parameter.
@@ -229,6 +268,31 @@ unsafe fn read_asc_string(ptr: u32) -> String {
         .collect()
 }
 
+/// Read an `Array<AscPtr<EthereumValue>>` and return a `Vec<EthereumValue>`.
+///
+/// Used for array and tuple parameters. Layout is the same as
+/// `Array<EthereumEventParam>`: element pointers are u32 values packed
+/// at `buffer_data_start`.
+unsafe fn read_ethereum_value_array(arr_ptr: u32) -> Vec<EthereumValue> {
+    if arr_ptr == 0 {
+        return vec![];
+    }
+    unsafe {
+        let data_start = read_u32_at(arr_ptr, 4);
+        let length = read_u32_at(arr_ptr, 12);
+        let mut values = Vec::with_capacity(length as usize);
+        for i in 0..length {
+            let elem_ptr = read_u32_at(data_start, i * 4);
+            values.push(if elem_ptr != 0 {
+                read_ethereum_value(elem_ptr)
+            } else {
+                EthereumValue::Unknown(0)
+            });
+        }
+        values
+    }
+}
+
 /// Read an Array<EthereumEventParam> and return a Vec of EventParam.
 ///
 /// Array<T> payload:
@@ -318,8 +382,18 @@ unsafe fn read_ethereum_value(ptr: u32) -> EthereumValue {
                 let s = read_asc_string(data_ptr);
                 EthereumValue::String(s)
             }
-            KIND_FIXED_ARRAY | KIND_ARRAY => EthereumValue::Array,
-            KIND_TUPLE => EthereumValue::Tuple,
+            KIND_FIXED_ARRAY => {
+                let items = read_ethereum_value_array(data_ptr);
+                EthereumValue::FixedArray(items)
+            }
+            KIND_ARRAY => {
+                let items = read_ethereum_value_array(data_ptr);
+                EthereumValue::Array(items)
+            }
+            KIND_TUPLE => {
+                let items = read_ethereum_value_array(data_ptr);
+                EthereumValue::Tuple(items)
+            }
             other => EthereumValue::Unknown(other),
         }
     }
@@ -401,6 +475,72 @@ impl RawEthereumEvent {
             }
         }
         Err("param not found or wrong type")
+    }
+
+    /// Find a named parameter and return its array elements (`T[]` or `T[N]`).
+    pub fn find_array(&self, name: &str) -> Result<&Vec<EthereumValue>, &'static str> {
+        for p in &self.params {
+            if p.name == name {
+                match &p.value {
+                    EthereumValue::Array(v) | EthereumValue::FixedArray(v) => return Ok(v),
+                    _ => {}
+                }
+            }
+        }
+        Err("param not found or wrong type")
+    }
+
+    /// Find a named parameter and return its tuple elements (`(T1, T2, ...)`).
+    pub fn find_tuple(&self, name: &str) -> Result<&Vec<EthereumValue>, &'static str> {
+        for p in &self.params {
+            if p.name == name {
+                if let EthereumValue::Tuple(v) = &p.value {
+                    return Ok(v);
+                }
+            }
+        }
+        Err("param not found or wrong type")
+    }
+}
+
+// ============================================================================
+// ethereum.decode host function wrapper
+// ============================================================================
+
+/// Decode ABI-encoded bytes according to a Solidity type string.
+///
+/// Calls the `ethereum.decode` host function provided by graph-node and
+/// decodes the returned `EthereumValue` from AS memory.
+///
+/// Returns `None` if decoding fails (e.g., invalid types string or malformed data).
+///
+/// # Example
+///
+/// ```ignore
+/// let value = ethereum_decode("uint256", &token_id_bytes);
+/// if let Some(EthereumValue::Uint(bytes)) = value {
+///     // bytes is little-endian BigInt representation
+/// }
+/// ```
+///
+/// On native (non-WASM) builds this always returns `None` — mock it in tests
+/// by constructing `EthereumValue` directly.
+pub fn ethereum_decode(types: &str, data: &[u8]) -> Option<EthereumValue> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::{as_types, ffi};
+        let types_ptr = as_types::new_asc_string(types);
+        let data_ptr = as_types::new_asc_bytes(data);
+        let result_ptr = unsafe { ffi::ethereum_decode(types_ptr, data_ptr) };
+        if result_ptr == 0 {
+            return None;
+        }
+        Some(unsafe { read_ethereum_value(result_ptr) })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (types, data);
+        None
     }
 }
 
