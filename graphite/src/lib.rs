@@ -32,23 +32,13 @@
 
 extern crate alloc;
 
-pub mod decode;
 pub mod host;
 pub mod primitives;
 pub mod store;
 pub mod testing;
 
-#[cfg(any(target_arch = "wasm32", test))]
-pub mod wasm;
-
-#[cfg(test)]
-mod abi_vectors_tests;
-
 /// Prelude module — import everything you need with `use graphite::prelude::*`
 pub mod prelude {
-    pub use crate::decode::{
-        DecodeError, EventDecode, FromWasmBytes, RawBlock, RawCall, RawLog, TlvReader,
-    };
     pub use crate::host::HostFunctions;
     pub use crate::primitives::{Address, BigDecimal, BigInt, Bytes, B256, U256};
     pub use crate::store::{Entity, FromValue, Store, Value};
@@ -56,9 +46,6 @@ pub mod prelude {
 
     #[cfg(feature = "std")]
     pub use crate::testing::MockHost;
-
-    #[cfg(target_arch = "wasm32")]
-    pub use crate::wasm::WasmHost;
 }
 
 // Re-export key types at crate root

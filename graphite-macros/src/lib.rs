@@ -182,45 +182,14 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #impl_name(host, #param_name)
         }
 
-        // The extern "C" wrapper for WASM - this is what graph-node calls
+        // The extern "C" wrapper for WASM - this is what graph-node calls.
+        // TODO(Phase 2): generate AS-ABI-compatible entry point (single AscPtr i32 arg).
+        // The TLV implementation has been removed; this stub keeps the crate compiling
+        // while graph-as-runtime is being built.
         #[cfg(target_arch = "wasm32")]
         #[unsafe(no_mangle)]
-        pub extern "C" fn #fn_name(event_ptr: u32, event_len: u32) -> u32 {
-            // Install panic hook (idempotent — only runs once)
-            graphite::wasm::panic::install();
-
-            // SAFETY: graph-node passes valid ptr+len pointing to serialized event
-            let bytes = unsafe {
-                core::slice::from_raw_parts(event_ptr as *const u8, event_len as usize)
-            };
-
-            // Deserialize the event from graph-node's TLV format
-            let #param_name = match <#param_type as graphite::decode::FromWasmBytes>::from_wasm_bytes(bytes) {
-                Ok(e) => e,
-                Err(e) => {
-                    // Log the decode error so it shows up in graph-node logs
-                    let msg = alloc::format!(
-                        "Failed to decode {} in {}: {}",
-                        stringify!(#param_type),
-                        stringify!(#fn_name),
-                        e
-                    );
-                    let msg_ptr = msg.as_ptr() as u32;
-                    let msg_len = msg.len() as u32;
-                    unsafe {
-                        graphite::wasm::ffi::log_log(3, msg_ptr, msg_len); // 3 = Error
-                    }
-                    return 1;
-                }
-            };
-
-            // Create the WASM host for calling back into graph-node
-            let mut host = graphite::wasm::WasmHost::new();
-
-            // Call the actual handler implementation
-            #impl_name(&mut host, &#param_name);
-
-            0 // Success
+        pub extern "C" fn #fn_name(_event_ptr: i32) {
+            todo!("AS-ABI handler entry point not yet implemented — see Phase 2 of IMPLEMENTATION_PLAN.md")
         }
     };
 
