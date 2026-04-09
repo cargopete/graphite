@@ -1,4 +1,4 @@
-specVersion: 0.0.5
+specVersion: 0.0.4
 schema:
   file: ./schema.graphql
 dataSources:
@@ -6,14 +6,14 @@ dataSources:
     name: ERC721
     network: arbitrum-one
     source:
-      # Smol Brains NFT — Arbitrum One (TreasureDAO)
-      address: "0x6325439389E0797Ab35752B4F43a14C004f22A9C"
+      # Uniswap V3 NonfungiblePositionManager — Arbitrum One
+      address: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88"
       abi: ERC721
-      startBlock: 1800000
+      startBlock: 450708728
     mapping:
-      kind: wasm/rust
-      apiVersion: 0.0.7
-      language: rust
+      kind: wasm/assemblyscript
+      apiVersion: 0.0.6
+      language: wasm/assemblyscript
       entities:
         - Token
         - Transfer

@@ -75,9 +75,13 @@ pub fn handle_approval_impl(raw: &RawEthereumEvent) {
         .save();
 
     let token_id_str = hex_bytes(&event.token_id);
-    Token::new(&token_id_str)
-        .set_approved(event.approved.to_vec())
-        .save();
+    let token = match Token::load(&token_id_str) {
+        Some(t) => t.set_approved(event.approved.to_vec()),
+        None => Token::new(&token_id_str)
+            .set_owner(event.owner.to_vec())
+            .set_approved(event.approved.to_vec()),
+    };
+    token.save();
 }
 
 // ============================================================================
@@ -88,9 +92,12 @@ pub fn handle_approval_impl(raw: &RawEthereumEvent) {
 #[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 pub extern "C" fn handle_transfer(event_ptr: i32) {
-    let raw = unsafe { read_ethereum_event(event_ptr as u32) };
     unsafe {
         log_log(LOG_INFO, new_asc_string("erc721: handle_transfer called"));
+    }
+    let raw = unsafe { read_ethereum_event(event_ptr as u32) };
+    unsafe {
+        log_log(LOG_INFO, new_asc_string("erc721: event read ok"));
     }
     handle_transfer_impl(&raw);
     unsafe {

@@ -182,9 +182,9 @@ dataSources:
       abi: {name}
       startBlock: 0
     mapping:
-      kind: wasm/rust
-      apiVersion: 0.0.7
-      language: rust
+      kind: ethereum/events
+      apiVersion: 0.0.6
+      language: wasm/assemblyscript
       entities:
         - ExampleEntity
       abis:

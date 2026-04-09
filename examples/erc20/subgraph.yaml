@@ -13,7 +13,7 @@ dataSources:
     mapping:
       kind: wasm/rust
       apiVersion: 0.0.7
-      language: rust
+      language: wasm/assemblyscript
       entities:
         - Token
         - Account
