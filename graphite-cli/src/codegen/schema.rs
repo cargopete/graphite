@@ -100,17 +100,17 @@ fn generate_entity_struct<'a>(
     }
     writeln!(output, "pub struct {} {{", name)?;
 
-    // Emit fields
+    // Emit fields — non-nullable fields use `T`, nullable fields use `Option<T>`.
     for field in fields {
         let field_name = field.name.to_snake_case();
-        let (rust_type, optional) = graphql_type_to_rust(&field.field_type);
+        let (rust_type, nullable) = graphql_type_to_rust(&field.field_type);
 
         if field.name == "id" {
             writeln!(output, "    id: alloc::string::String,")?;
-        } else if optional {
+        } else if nullable {
             writeln!(output, "    {}: Option<{}>,", field_name, rust_type)?;
         } else {
-            writeln!(output, "    {}: Option<{}>,", field_name, rust_type)?;
+            writeln!(output, "    {}: {},", field_name, rust_type)?;
         }
     }
 
@@ -129,7 +129,12 @@ fn generate_entity_struct<'a>(
             continue;
         }
         let field_name = field.name.to_snake_case();
-        writeln!(output, "            {}: None,", field_name)?;
+        let (_, nullable) = graphql_type_to_rust(&field.field_type);
+        if nullable {
+            writeln!(output, "            {}: None,", field_name)?;
+        } else {
+            writeln!(output, "            {}: Default::default(),", field_name)?;
+        }
     }
     writeln!(output, "        }}")?;
     writeln!(output, "    }}")?;
@@ -141,7 +146,7 @@ fn generate_entity_struct<'a>(
             continue;
         }
         let field_name = field.name.to_snake_case();
-        let (rust_type, _) = graphql_type_to_rust(&field.field_type);
+        let (rust_type, nullable) = graphql_type_to_rust(&field.field_type);
         let setter_name = format!("set_{}", field_name);
 
         writeln!(
@@ -149,7 +154,11 @@ fn generate_entity_struct<'a>(
             "    pub fn {}(mut self, v: {}) -> Self {{",
             setter_name, rust_type
         )?;
-        writeln!(output, "        self.{} = Some(v);", field_name)?;
+        if nullable {
+            writeln!(output, "        self.{} = Some(v);", field_name)?;
+        } else {
+            writeln!(output, "        self.{} = v;", field_name)?;
+        }
         writeln!(output, "        self")?;
         writeln!(output, "    }}")?;
         writeln!(output)?;
@@ -170,7 +179,9 @@ fn generate_entity_struct<'a>(
         }
         let field_name = field.name.to_snake_case();
         let gql_name = &field.name;
-        let builder_call = graphql_field_to_builder_call(&field.field_type, &field_name, gql_name);
+        let (_, nullable) = graphql_type_to_rust(&field.field_type);
+        let builder_call =
+            graphql_field_to_builder_call(&field.field_type, &field_name, gql_name, nullable);
         output.push_str(&builder_call);
     }
 
@@ -212,8 +223,9 @@ fn generate_entity_struct<'a>(
         }
         let field_name = field.name.to_snake_case();
         let gql_name = &field.name;
+        let (_, nullable) = graphql_type_to_rust(&field.field_type);
         let native_call =
-            graphql_field_to_native_store_call(&field.field_type, &field_name, gql_name);
+            graphql_field_to_native_store_call(&field.field_type, &field_name, gql_name, nullable);
         output.push_str(&native_call);
     }
 
@@ -260,7 +272,8 @@ fn generate_entity_struct<'a>(
         }
         let field_name = field.name.to_snake_case();
         let gql_name = &field.name;
-        let decode = wasm_load_field_decode(&field.field_type, &field_name, gql_name);
+        let (_, nullable) = graphql_type_to_rust(&field.field_type);
+        let decode = wasm_load_field_decode(&field.field_type, &field_name, gql_name, nullable);
         output.push_str(&decode);
     }
     writeln!(output, "        }})")?;
@@ -287,7 +300,8 @@ fn generate_entity_struct<'a>(
         }
         let field_name = field.name.to_snake_case();
         let gql_name = &field.name;
-        let decode = native_load_field_decode(&field.field_type, &field_name, gql_name);
+        let (_, nullable) = graphql_type_to_rust(&field.field_type);
+        let decode = native_load_field_decode(&field.field_type, &field_name, gql_name, nullable);
         output.push_str(&decode);
     }
     writeln!(output, "        }})")?;
@@ -340,30 +354,34 @@ fn wasm_load_field_decode<'a>(
     ty: &'a Type<'a, String>,
     field_name: &str,
     gql_name: &str,
+    nullable: bool,
 ) -> String {
     if matches!(ty, Type::ListType(_))
         || matches!(ty, Type::NonNullType(inner) if matches!(inner.as_ref(), Type::ListType(_)))
     {
-        return format!("            {}: None,\n", field_name);
+        return if nullable {
+            format!("            {}: None,\n", field_name)
+        } else {
+            format!("            {}: Default::default(),\n", field_name)
+        };
     }
     let base = get_base_scalar(ty);
-    match base {
+    let expr = match base {
         "ID" | "String" => format!(
-            "            {}: get({:?}).and_then(|v| v.as_string().map(|s| s.to_string())),\n",
-            field_name, gql_name
+            "get({:?}).and_then(|v| v.as_string().map(|s| s.to_string()))",
+            gql_name
         ),
-        "Boolean" => format!(
-            "            {}: get({:?}).and_then(|v| v.as_bool()),\n",
-            field_name, gql_name
-        ),
-        "Int" => format!(
-            "            {}: get({:?}).and_then(|v| v.as_i32()),\n",
-            field_name, gql_name
-        ),
-        _ => format!(
-            "            {}: get({:?}).and_then(|v| v.as_bytes()),\n",
-            field_name, gql_name
-        ),
+        "Boolean" => format!("get({:?}).and_then(|v| v.as_bool())", gql_name),
+        "Int" => format!("get({:?}).and_then(|v| v.as_i32())", gql_name),
+        _ => format!("get({:?}).and_then(|v| v.as_bytes())", gql_name),
+    };
+    if nullable {
+        format!("            {}: {},\n", field_name, expr)
+    } else {
+        format!(
+            "            {}: {}.unwrap_or_default(),\n",
+            field_name, expr
+        )
     }
 }
 
@@ -372,34 +390,44 @@ fn native_load_field_decode<'a>(
     ty: &'a Type<'a, String>,
     field_name: &str,
     gql_name: &str,
+    nullable: bool,
 ) -> String {
     if matches!(ty, Type::ListType(_))
         || matches!(ty, Type::NonNullType(inner) if matches!(inner.as_ref(), Type::ListType(_)))
     {
-        return format!("            {}: None,\n", field_name);
+        return if nullable {
+            format!("            {}: None,\n", field_name)
+        } else {
+            format!("            {}: Default::default(),\n", field_name)
+        };
     }
     let base = get_base_scalar(ty);
-    match base {
+    let expr = match base {
         "ID" | "String" => format!(
-            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::String(s) = v {{ Some(s.clone()) }} else {{ None }}),\n",
-            field_name, gql_name
+            "fields.get({:?}).and_then(|v| if let FieldValue::String(s) = v {{ Some(s.clone()) }} else {{ None }})",
+            gql_name
         ),
         "Boolean" => format!(
-            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::Bool(b) = v {{ Some(*b) }} else {{ None }}),\n",
-            field_name, gql_name
+            "fields.get({:?}).and_then(|v| if let FieldValue::Bool(b) = v {{ Some(*b) }} else {{ None }})",
+            gql_name
         ),
         "Int" => format!(
-            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::Int(n) = v {{ Some(*n) }} else {{ None }}),\n",
-            field_name, gql_name
+            "fields.get({:?}).and_then(|v| if let FieldValue::Int(n) = v {{ Some(*n) }} else {{ None }})",
+            gql_name
         ),
         "BigInt" | "BigDecimal" => format!(
-            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::BigInt(b) = v {{ Some(b.clone()) }} else {{ None }}),\n",
-            field_name, gql_name
+            "fields.get({:?}).and_then(|v| if let FieldValue::BigInt(b) = v {{ Some(b.clone()) }} else {{ None }})",
+            gql_name
         ),
         _ => format!(
-            "            {}: fields.get({:?}).and_then(|v| if let FieldValue::Bytes(b) = v {{ Some(b.clone()) }} else {{ None }}),\n",
-            field_name, gql_name
+            "fields.get({:?}).and_then(|v| if let FieldValue::Bytes(b) = v {{ Some(b.clone()) }} else {{ None }})",
+            gql_name
         ),
+    };
+    if nullable {
+        format!("            {}: {},\n", field_name, expr)
+    } else {
+        format!("            {}: {}.unwrap_or_default(),\n", field_name, expr)
     }
 }
 
@@ -408,6 +436,7 @@ fn graphql_field_to_native_store_call<'a>(
     ty: &'a Type<'a, String>,
     field_name: &str,
     gql_name: &str,
+    nullable: bool,
 ) -> String {
     // Skip list types
     if matches!(ty, Type::ListType(_))
@@ -420,31 +449,60 @@ fn graphql_field_to_native_store_call<'a>(
     }
 
     let base_scalar = get_base_scalar(ty);
-    match base_scalar {
-        "ID" | "String" => format!(
-            "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::String(v.clone())); }}\n",
-            field_name, gql_name
-        ),
-        "Boolean" => format!(
-            "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Bool(v)); }}\n",
-            field_name, gql_name
-        ),
-        "Int" => format!(
-            "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Int(v)); }}\n",
-            field_name, gql_name
-        ),
-        "BigInt" | "BigDecimal" => format!(
-            "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::BigInt(v.clone())); }}\n",
-            field_name, gql_name
-        ),
-        "Bytes" | "Address" => format!(
-            "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Bytes(v.clone())); }}\n",
-            field_name, gql_name
-        ),
-        _ => format!(
-            "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::String(v.clone())); }}\n",
-            field_name, gql_name
-        ),
+    if nullable {
+        match base_scalar {
+            "ID" | "String" => format!(
+                "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::String(v.clone())); }}\n",
+                field_name, gql_name
+            ),
+            "Boolean" => format!(
+                "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Bool(v)); }}\n",
+                field_name, gql_name
+            ),
+            "Int" => format!(
+                "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Int(v)); }}\n",
+                field_name, gql_name
+            ),
+            "BigInt" | "BigDecimal" => format!(
+                "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::BigInt(v.clone())); }}\n",
+                field_name, gql_name
+            ),
+            "Bytes" | "Address" => format!(
+                "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Bytes(v.clone())); }}\n",
+                field_name, gql_name
+            ),
+            _ => format!(
+                "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::String(v.clone())); }}\n",
+                field_name, gql_name
+            ),
+        }
+    } else {
+        match base_scalar {
+            "ID" | "String" => format!(
+                "        fields.insert({:?}.to_string(), FieldValue::String(self.{}.clone()));\n",
+                gql_name, field_name
+            ),
+            "Boolean" => format!(
+                "        fields.insert({:?}.to_string(), FieldValue::Bool(self.{}));\n",
+                gql_name, field_name
+            ),
+            "Int" => format!(
+                "        fields.insert({:?}.to_string(), FieldValue::Int(self.{}));\n",
+                gql_name, field_name
+            ),
+            "BigInt" | "BigDecimal" => format!(
+                "        fields.insert({:?}.to_string(), FieldValue::BigInt(self.{}.clone()));\n",
+                gql_name, field_name
+            ),
+            "Bytes" | "Address" => format!(
+                "        fields.insert({:?}.to_string(), FieldValue::Bytes(self.{}.clone()));\n",
+                gql_name, field_name
+            ),
+            _ => format!(
+                "        fields.insert({:?}.to_string(), FieldValue::String(self.{}.clone()));\n",
+                gql_name, field_name
+            ),
+        }
     }
 }
 
@@ -453,6 +511,7 @@ fn graphql_field_to_builder_call<'a>(
     ty: &'a Type<'a, String>,
     field_name: &str,
     gql_name: &str,
+    nullable: bool,
 ) -> String {
     let base_scalar = get_base_scalar(ty);
 
@@ -466,43 +525,51 @@ fn graphql_field_to_builder_call<'a>(
         );
     }
 
-    match base_scalar {
-        "ID" | "String" => {
-            format!(
+    if nullable {
+        match base_scalar {
+            "ID" | "String" => format!(
                 "        if let Some(ref v) = self.{} {{ b.set_string({:?}, v); }}\n",
                 field_name, gql_name
-            )
-        }
-        "Boolean" => {
-            format!(
+            ),
+            "Boolean" => format!(
                 "        if let Some(v) = self.{} {{ b.set_bool({:?}, v); }}\n",
                 field_name, gql_name
-            )
-        }
-        "Int" => {
-            format!(
+            ),
+            "Int" => format!(
                 "        if let Some(v) = self.{} {{ b.set_i32({:?}, v); }}\n",
                 field_name, gql_name
-            )
-        }
-        "BigInt" | "BigDecimal" => {
-            format!(
+            ),
+            "BigInt" | "BigDecimal" => format!(
                 "        if let Some(ref v) = self.{} {{ b.set_bigint({:?}, v); }}\n",
                 field_name, gql_name
-            )
-        }
-        "Bytes" | "Address" => {
-            format!(
+            ),
+            "Bytes" | "Address" => format!(
                 "        if let Some(ref v) = self.{} {{ b.set_bytes({:?}, v); }}\n",
                 field_name, gql_name
-            )
-        }
-        _ => {
-            // Entity reference — stored as a string ID
-            format!(
+            ),
+            _ => format!(
                 "        if let Some(ref v) = self.{} {{ b.set_string({:?}, v); }}\n",
                 field_name, gql_name
-            )
+            ),
+        }
+    } else {
+        match base_scalar {
+            "ID" | "String" => format!(
+                "        b.set_string({:?}, &self.{});\n",
+                gql_name, field_name
+            ),
+            "Boolean" => format!("        b.set_bool({:?}, self.{});\n", gql_name, field_name),
+            "Int" => format!("        b.set_i32({:?}, self.{});\n", gql_name, field_name),
+            "BigInt" | "BigDecimal" => {
+                format!("        b.set_bigint({:?}, &self.{});\n", gql_name, field_name)
+            }
+            "Bytes" | "Address" => {
+                format!("        b.set_bytes({:?}, &self.{});\n", gql_name, field_name)
+            }
+            _ => format!(
+                "        b.set_string({:?}, &self.{});\n",
+                gql_name, field_name
+            ),
         }
     }
 }
@@ -519,11 +586,10 @@ where
     }
 }
 
-/// Convert a GraphQL type to Rust type + whether it's optional.
-/// Returns (rust_type_string, is_optional).
+/// Convert a GraphQL type to a Rust type string and a nullability flag.
+/// Returns `(rust_type_string, is_nullable)`.
 ///
-/// All fields on an entity are stored as Option<T> in the struct to support
-/// the builder pattern, regardless of non-null in the schema.
+/// Non-nullable fields (`!`) use `T` in the struct; nullable fields use `Option<T>`.
 fn graphql_type_to_rust(ty: &Type<'_, String>) -> (String, bool) {
     let is_nullable = !matches!(ty, Type::NonNullType(_));
     let rust_type = graphql_type_to_rust_inner(ty);

@@ -12,6 +12,49 @@ use num_traits::Signed;
 // Re-export alloy primitives
 pub use alloy_primitives::{Address, B256, U256};
 
+/// Convenience extension for `Address`.
+///
+/// Bring into scope with `use graphite::primitives::AddressExt;`.
+pub trait AddressExt: Sized {
+    /// Parse a 20-byte Ethereum address from a hex string (with or without `0x` prefix).
+    fn from_hex_str(s: &str) -> Result<Self, AddressError>;
+    /// Format as a lowercase hex string with `0x` prefix.
+    fn to_hex_string(&self) -> String;
+}
+
+impl AddressExt for Address {
+    fn from_hex_str(s: &str) -> Result<Self, AddressError> {
+        let s = s.strip_prefix("0x").unwrap_or(s);
+        if s.len() != 40 {
+            return Err(AddressError::InvalidLength);
+        }
+        let mut bytes = [0u8; 20];
+        for i in 0..20 {
+            bytes[i] = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16)
+                .map_err(|_| AddressError::InvalidHex)?;
+        }
+        Ok(Address::from(bytes))
+    }
+
+    fn to_hex_string(&self) -> String {
+        let mut s = String::with_capacity(42);
+        s.push_str("0x");
+        for byte in self.as_slice() {
+            use core::fmt::Write;
+            write!(s, "{:02x}", byte).unwrap();
+        }
+        s
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AddressError {
+    #[error("address must be 40 hex characters")]
+    InvalidLength,
+    #[error("invalid hex in address")]
+    InvalidHex,
+}
+
 /// Arbitrary-length byte array.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Bytes(Vec<u8>);
@@ -494,5 +537,22 @@ mod tests {
     fn bytes_from_hex_no_prefix() {
         let bytes = Bytes::from_hex("deadbeef").unwrap();
         assert_eq!(bytes.as_slice(), &[0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn address_from_hex_str_with_prefix() {
+        let addr = Address::from_hex_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap();
+        assert_eq!(addr.to_hex_string().to_lowercase(), "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+    }
+
+    #[test]
+    fn address_from_hex_str_no_prefix() {
+        let addr = Address::from_hex_str("A0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap();
+        assert_eq!(addr.as_slice().len(), 20);
+    }
+
+    #[test]
+    fn address_from_hex_str_bad_length() {
+        assert!(Address::from_hex_str("0x1234").is_err());
     }
 }
