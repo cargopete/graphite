@@ -37,6 +37,10 @@ pub mod primitives;
 pub mod store;
 pub mod testing;
 
+/// Mock host for native `cargo test` — no WASM, no graph-node required.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mock;
+
 /// Prelude module — import everything you need with `use graphite::prelude::*`
 pub mod prelude {
     pub use crate::host::HostFunctions;

@@ -1,65 +1,81 @@
-//! ERC721 NFT Subgraph Example
-//!
-//! Demonstrates how to use the Graphite SDK to build a subgraph
-//! that indexes ERC721 Transfer and Approval events.
+//! ERC721 NFT Subgraph — Phase 3: uses generated typed event and entity structs.
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
 
 extern crate alloc;
 
 use alloc::format;
+use graph_as_runtime::ethereum::{read_ethereum_event, FromRawEvent};
+use graph_as_runtime::as_types::new_asc_string;
+use graph_as_runtime::ffi::{log_log, LOG_INFO};
 
 mod generated;
+use generated::{ERC721TransferEvent, ERC721ApprovalEvent, Token, Transfer, Approval};
 
-use generated::{Approval, ERC721ApprovalEvent, ERC721TransferEvent, Token, Transfer};
-use graphite::prelude::*;
+/// Format a raw byte slice as a lowercase hex string (no "0x" prefix).
+fn hex_bytes(b: &[u8]) -> alloc::string::String {
+    b.iter().map(|x| format!("{:02x}", x)).collect()
+}
 
 /// Handle ERC721 Transfer events.
 ///
 /// Tracks the current owner of each token and records every transfer.
-/// The zero address is used by the ERC721 spec for mints (from = 0x0)
-/// and burns (to = 0x0).
-#[handler]
-pub fn handle_transfer(event: ERC721TransferEvent) {
-    let id = event.id();
-    let mut transfer = Transfer::new(&id);
+#[unsafe(no_mangle)]
+pub extern "C" fn handle_transfer(event_ptr: i32) {
+    let raw = unsafe { read_ethereum_event(event_ptr as u32) };
 
-    transfer.from = Bytes::from_slice(event.from.as_slice());
-    transfer.to = Bytes::from_slice(event.to.as_slice());
-    transfer.token_id = event.token_id.clone();
-    transfer.block_number = event.block_number.clone();
-    transfer.timestamp = event.block_timestamp.clone();
-    transfer.transaction_hash = Bytes::from_slice(event.tx_hash.as_slice());
-    transfer.save(host);
+    let event = match ERC721TransferEvent::from_raw_event(&raw) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
 
-    // Update the token's current owner
-    let token_id_str = format!("{}", event.token_id);
-    let mut token = Token::new(&token_id_str);
-    token.owner = Bytes::from_slice(event.to.as_slice());
-    // Clear any pending approval on transfer (ERC721 spec)
-    token.approved = Bytes::from_slice(&[0u8; 20]);
-    token.save(host);
+    unsafe { log_log(LOG_INFO, new_asc_string("erc721: handle_transfer called")); }
+
+    // Unique transfer ID
+    let id = format!("{}-{}", hex_bytes(&event.tx_hash), hex_bytes(&event.log_index));
+
+    Transfer::new(&id)
+        .set_from(event.from.to_vec())
+        .set_to(event.to.to_vec())
+        .set_token_id(event.token_id.clone())
+        .set_block_number(event.block_number.clone())
+        .set_timestamp(event.block_timestamp.clone())
+        .set_transaction_hash(event.tx_hash.to_vec())
+        .save();
+
+    // Update the token's current owner (use token_id hex as entity ID)
+    let token_id_str = hex_bytes(&event.token_id);
+    Token::new(&token_id_str)
+        .set_owner(event.to.to_vec())
+        .set_approved(alloc::vec![0u8; 20]) // clear approval on transfer
+        .save();
+
+    unsafe { log_log(LOG_INFO, new_asc_string("erc721: Transfer entity saved")); }
 }
 
 /// Handle ERC721 Approval events.
-///
-/// Records the approved address for a specific token ID.
-#[handler]
-pub fn handle_approval(event: ERC721ApprovalEvent) {
-    let id = event.id();
-    let mut approval = Approval::new(&id);
+#[unsafe(no_mangle)]
+pub extern "C" fn handle_approval(event_ptr: i32) {
+    let raw = unsafe { read_ethereum_event(event_ptr as u32) };
 
-    approval.owner = Bytes::from_slice(event.owner.as_slice());
-    approval.approved = Bytes::from_slice(event.approved.as_slice());
-    approval.token_id = event.token_id.clone();
-    approval.block_number = event.block_number.clone();
-    approval.transaction_hash = Bytes::from_slice(event.tx_hash.as_slice());
-    approval.save(host);
+    let event = match ERC721ApprovalEvent::from_raw_event(&raw) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let id = format!("{}-{}", hex_bytes(&event.tx_hash), hex_bytes(&event.log_index));
+
+    Approval::new(&id)
+        .set_owner(event.owner.to_vec())
+        .set_approved(event.approved.to_vec())
+        .set_token_id(event.token_id.clone())
+        .set_block_number(event.block_number.clone())
+        .set_transaction_hash(event.tx_hash.to_vec())
+        .save();
 
     // Update the token's approved address
-    let token_id_str = format!("{}", event.token_id);
-    let mut token = Token::new(&token_id_str);
-    token.owner = Bytes::from_slice(&[0u8; 20]); // Will be overwritten if token exists
-    token.approved = Bytes::from_slice(event.approved.as_slice());
-    token.save(host);
+    let token_id_str = hex_bytes(&event.token_id);
+    Token::new(&token_id_str)
+        .set_approved(event.approved.to_vec())
+        .save();
 }

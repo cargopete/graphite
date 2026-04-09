@@ -14,6 +14,7 @@ wasm = []  # Enable when compiling to WASM target
 
 [dependencies]
 graphite-macros = { workspace = true }
+graph-as-runtime = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 num-bigint = { workspace = true }
