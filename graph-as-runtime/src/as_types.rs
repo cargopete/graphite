@@ -158,42 +158,54 @@ fn new_uint8array_like(class_id: u32, data: &[u8]) -> u32 {
 // Value
 // ============================================================================
 
-/// AS Value layout: [kind: u32] [payload_lo: u32] [payload_hi: u32]
-/// Total payload = 12 bytes.
+/// AS Value (AscEnum<StoreValueKind>) layout:
+///
+/// ```text
+/// [kind:    u32]  -- discriminant (StoreValueKind)
+/// [_pad:    u32]  -- explicit 4-byte padding (graph-node AscEnum has this field)
+/// [payload: u64]  -- 8-byte EnumPayload (pointer or scalar)
+/// ```
+/// Total payload = 16 bytes.
+///
+/// The explicit padding between `kind` and `payload` is required by
+/// graph-node's `AscEnum<D>` struct definition (`_padding: u32` field).
+/// Previously this was 12 bytes which caused "Size does not match" errors.
 
 /// Build a `Value` of kind String.
 pub fn new_value_string(str_ptr: u32) -> u32 {
-    new_value(VALUE_KIND_STRING, str_ptr, 0)
+    new_value(VALUE_KIND_STRING, str_ptr as u64)
 }
 
 /// Build a `Value` of kind Bytes.
 pub fn new_value_bytes(bytes_ptr: u32) -> u32 {
-    new_value(VALUE_KIND_BYTES, bytes_ptr, 0)
+    new_value(VALUE_KIND_BYTES, bytes_ptr as u64)
 }
 
 /// Build a `Value` of kind BigInt.
 pub fn new_value_big_int(big_int_ptr: u32) -> u32 {
-    new_value(VALUE_KIND_BIG_INT, big_int_ptr, 0)
+    new_value(VALUE_KIND_BIG_INT, big_int_ptr as u64)
 }
 
 /// Build a `Value` of kind Int (i32).
 pub fn new_value_int(n: i32) -> u32 {
-    new_value(VALUE_KIND_INT, n as u32, 0)
+    new_value(VALUE_KIND_INT, n as u64)
 }
 
 /// Build a `Value` of kind Bool.
 pub fn new_value_bool(b: bool) -> u32 {
-    new_value(VALUE_KIND_BOOL, b as u32, 0)
+    new_value(VALUE_KIND_BOOL, b as u64)
 }
 
-fn new_value(kind: u32, payload_lo: u32, payload_hi: u32) -> u32 {
-    // 3 u32 fields = 12 bytes.
-    let ptr = alloc_as_obj(class_ids::VALUE, 12);
+fn new_value(kind: u32, payload: u64) -> u32 {
+    // Layout: kind(u32) + padding(u32) + payload(u64) = 16 bytes.
+    let ptr = alloc_as_obj(class_ids::VALUE, 16);
     let fields = ptr as *mut u32;
     unsafe {
-        fields.write(kind);
-        fields.add(1).write(payload_lo);
-        fields.add(2).write(payload_hi);
+        fields.write(kind);            // kind
+        fields.add(1).write(0);        // _padding (explicit, matches AscEnum._padding)
+        // payload as two u32 words, little-endian
+        let payload_ptr = fields.add(2) as *mut u64;
+        payload_ptr.write_unaligned(payload);
     }
     ptr
 }
@@ -220,17 +232,20 @@ pub fn new_typed_map_entry(key_ptr: u32, value_ptr: u32) -> u32 {
 // Array<TypedMapEntry> and TypedMap
 // ============================================================================
 
-/// Build an `Array<TypedMapEntry>` from a slice of entry pointers.
+/// Build an `Array<AscPtr<TypedMapEntry>>` from a slice of entry pointers.
 ///
-/// AS typed array layout:
+/// For apiVersion >= 0.0.5, the AS `Array<T>` (ArrayBufferView) layout is:
 /// ```text
-/// [buffer: u32 AscPtr<ArrayBuffer>]  -- holds raw u32 pointers
-/// [length: u32]
+/// [buffer:            u32]  -- AscPtr<ArrayBuffer> (the backing buffer)
+/// [buffer_data_start: u32]  -- absolute pointer to data start within buffer
+/// [buffer_data_length:u32]  -- byte length of the active data region
+/// [length:            i32]  -- element count (mutable user-visible length)
 /// ```
-/// Total payload = 8 bytes in the Array object.
-/// The ArrayBuffer payload = length * 4 bytes.
+/// Total Array payload = 16 bytes.
+///
+/// The ArrayBuffer payload = length * sizeof(element) bytes.
 pub fn new_typed_map_entry_array(entries: &[u32]) -> u32 {
-    // 1. Build the ArrayBuffer (raw u32 pointers, LE).
+    // 1. Build the ArrayBuffer (raw u32 pointers, each 4 bytes).
     let buf_bytes = (entries.len() * 4) as u32;
     let buf_ptr = alloc_as_obj(CLASS_ARRAY_BUFFER, buf_bytes);
     let buf_data = buf_ptr as *mut u32;
@@ -240,12 +255,17 @@ pub fn new_typed_map_entry_array(entries: &[u32]) -> u32 {
         }
     }
 
-    // 2. Build the Array object.
-    let arr_ptr = alloc_as_obj(class_ids::ARRAY_TYPED_MAP_ENTRY, 8);
+    // 2. Build the Array object with the v0.0.5 ArrayBufferView layout (16 bytes).
+    //    buffer_data_start = buf_ptr (data starts at the very beginning of the buffer).
+    //    buffer_data_length = buf_bytes (all bytes of the buffer are in use).
+    //    length = number of elements.
+    let arr_ptr = alloc_as_obj(class_ids::ARRAY_TYPED_MAP_ENTRY, 16);
     let arr_fields = arr_ptr as *mut u32;
     unsafe {
-        arr_fields.write(buf_ptr);                  // buffer
-        arr_fields.add(1).write(entries.len() as u32); // length
+        arr_fields.write(buf_ptr);                      // buffer
+        arr_fields.add(1).write(buf_ptr);               // buffer_data_start (= buffer start)
+        arr_fields.add(2).write(buf_bytes);             // buffer_data_length (bytes)
+        arr_fields.add(3).write(entries.len() as u32);  // length (element count)
     }
 
     arr_ptr

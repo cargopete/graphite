@@ -31,6 +31,7 @@ extern crate alloc;
 pub mod alloc_impl;
 pub mod as_types;
 pub mod class_ids;
+pub mod ethereum;
 pub mod ffi;
 pub mod panic_handler;
 

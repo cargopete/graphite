@@ -180,6 +180,44 @@ pub extern "C" fn reset_arena() {
     BUMP_PTR.store(aligned, Ordering::Relaxed);
 }
 
+/// `allocate(size: i32) -> i32`
+///
+/// Raw arena allocator called by graph-node (AS path, apiVersion >= 0.0.5) to
+/// carve out untyped memory chunks. It is also used by the Rust ABI path to
+/// write trigger data into WASM memory before calling the handler.
+/// Unlike `__new`, this returns a raw data pointer with no AS object header.
+///
+/// Note: WASM i32 and u32 share the same representation; wasmtime's TypedFunc
+/// will match this regardless of the signed/unsigned distinction in the host.
+#[unsafe(no_mangle)]
+pub extern "C" fn allocate(size: u32) -> u32 {
+    raw_alloc(size, 8)
+}
+
+/// `id_of_type(index: u32) -> u32`
+///
+/// AssemblyScript RTTI lookup: given an `IndexForAscTypeId` ordinal (used by
+/// graph-node to tag heap objects), return the corresponding runtime class ID.
+///
+/// In a real AS module this reads from the `__rtti_base` table. Our module has
+/// no AS RTTI table — but since `handle_block` ignores the block pointer passed
+/// to it, any class ID in the returned header is never inspected. We therefore
+/// return the index itself as a dummy class ID. This satisfies graph-node's
+/// type-check and the 16-byte AS object header is written with a value that is
+/// never read back by our handler code.
+#[unsafe(no_mangle)]
+pub extern "C" fn id_of_type(index: u32) -> u32 {
+    index
+}
+
+/// `_start()`
+///
+/// AssemblyScript module entry point, called by graph-node (apiVersion >= 0.0.5,
+/// AS path) immediately after instantiation to run module-level initialisers.
+/// Our module has no global initialisers, so this is a no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn _start() {}
+
 /// Return current heap usage in bytes (for debugging).
 #[unsafe(no_mangle)]
 pub extern "C" fn heap_usage() -> u32 {
