@@ -49,6 +49,17 @@ impl Token {
             graph_as_runtime::ffi::store_set(entity_ptr, id_ptr, b.build());
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save(&self) {
+        use std::collections::HashMap;
+        use graph_as_runtime::native_store::{FieldValue, STORE};
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
+        if let Some(ref v) = self.owner { fields.insert("owner".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.approved { fields.insert("approved".to_string(), FieldValue::Bytes(v.clone())); }
+        STORE.with(|s| s.borrow_mut().set_entity("Token", &self.id, fields));
+    }
 }
 
 /// Generated from `Transfer` entity in schema.graphql.
@@ -121,6 +132,21 @@ impl Transfer {
             graph_as_runtime::ffi::store_set(entity_ptr, id_ptr, b.build());
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save(&self) {
+        use std::collections::HashMap;
+        use graph_as_runtime::native_store::{FieldValue, STORE};
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
+        if let Some(ref v) = self.from { fields.insert("from".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.to { fields.insert("to".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.token_id { fields.insert("tokenId".to_string(), FieldValue::BigInt(v.clone())); }
+        if let Some(ref v) = self.block_number { fields.insert("blockNumber".to_string(), FieldValue::BigInt(v.clone())); }
+        if let Some(ref v) = self.timestamp { fields.insert("timestamp".to_string(), FieldValue::BigInt(v.clone())); }
+        if let Some(ref v) = self.transaction_hash { fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone())); }
+        STORE.with(|s| s.borrow_mut().set_entity("Transfer", &self.id, fields));
+    }
 }
 
 /// Generated from `Approval` entity in schema.graphql.
@@ -184,6 +210,20 @@ impl Approval {
         unsafe {
             graph_as_runtime::ffi::store_set(entity_ptr, id_ptr, b.build());
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save(&self) {
+        use std::collections::HashMap;
+        use graph_as_runtime::native_store::{FieldValue, STORE};
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
+        if let Some(ref v) = self.owner { fields.insert("owner".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.approved { fields.insert("approved".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.token_id { fields.insert("tokenId".to_string(), FieldValue::BigInt(v.clone())); }
+        if let Some(ref v) = self.block_number { fields.insert("blockNumber".to_string(), FieldValue::BigInt(v.clone())); }
+        if let Some(ref v) = self.transaction_hash { fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone())); }
+        STORE.with(|s| s.borrow_mut().set_entity("Approval", &self.id, fields));
     }
 }
 

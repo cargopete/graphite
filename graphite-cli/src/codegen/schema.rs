@@ -155,10 +155,88 @@ fn generate_entity_struct<'a>(name: &str, fields: &'a [Field<'a, String>]) -> Re
     )?;
     writeln!(output, "        }}")?;
     writeln!(output, "    }}")?;
+    writeln!(output)?;
+
+    // save() — native (non-wasm32) implementation for unit testing
+    writeln!(output, "    #[cfg(not(target_arch = \"wasm32\"))]")?;
+    writeln!(output, "    pub fn save(&self) {{")?;
+    writeln!(output, "        use std::collections::HashMap;")?;
+    writeln!(
+        output,
+        "        use graph_as_runtime::native_store::{{FieldValue, STORE}};"
+    )?;
+    writeln!(output, "        let mut fields = HashMap::new();")?;
+    writeln!(
+        output,
+        "        fields.insert(\"id\".to_string(), FieldValue::String(self.id.clone()));"
+    )?;
+
+    for field in fields {
+        if field.name == "id" {
+            continue;
+        }
+        let field_name = field.name.to_snake_case();
+        let gql_name = &field.name;
+        let native_call =
+            graphql_field_to_native_store_call(&field.field_type, &field_name, gql_name);
+        output.push_str(&native_call);
+    }
+
+    writeln!(
+        output,
+        "        STORE.with(|s| s.borrow_mut().set_entity({:?}, &self.id, fields));",
+        name
+    )?;
+    writeln!(output, "    }}")?;
 
     writeln!(output, "}}")?;
 
     Ok(output)
+}
+
+/// Generate the native `fields.insert(...)` call for a given field.
+fn graphql_field_to_native_store_call<'a>(
+    ty: &'a Type<'a, String>,
+    field_name: &str,
+    gql_name: &str,
+) -> String {
+    // Skip list types
+    if matches!(ty, Type::ListType(_))
+        || matches!(ty, Type::NonNullType(inner) if matches!(inner.as_ref(), Type::ListType(_)))
+    {
+        return format!(
+            "        // skipped list field `{}` (not directly storable)\n",
+            gql_name
+        );
+    }
+
+    let base_scalar = get_base_scalar(ty);
+    match base_scalar {
+        "ID" | "String" => format!(
+            "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::String(v.clone())); }}\n",
+            field_name, gql_name
+        ),
+        "Boolean" => format!(
+            "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Bool(v)); }}\n",
+            field_name, gql_name
+        ),
+        "Int" => format!(
+            "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Int(v)); }}\n",
+            field_name, gql_name
+        ),
+        "BigInt" | "BigDecimal" => format!(
+            "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::BigInt(v.clone())); }}\n",
+            field_name, gql_name
+        ),
+        "Bytes" | "Address" => format!(
+            "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Bytes(v.clone())); }}\n",
+            field_name, gql_name
+        ),
+        _ => format!(
+            "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::String(v.clone())); }}\n",
+            field_name, gql_name
+        ),
+    }
 }
 
 /// Generate the `b.set_*` call inside `save()` for a given field.

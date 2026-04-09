@@ -6,7 +6,9 @@ extern crate alloc;
 
 use alloc::format;
 use graph_as_runtime::ethereum::{read_ethereum_event, FromRawEvent};
+#[cfg(target_arch = "wasm32")]
 use graph_as_runtime::as_types::new_asc_string;
+#[cfg(target_arch = "wasm32")]
 use graph_as_runtime::ffi::{log_log, LOG_INFO};
 
 mod generated;
@@ -29,6 +31,7 @@ pub extern "C" fn handle_transfer(event_ptr: i32) {
         Err(_) => return,
     };
 
+    #[cfg(target_arch = "wasm32")]
     unsafe { log_log(LOG_INFO, new_asc_string("erc721: handle_transfer called")); }
 
     // Unique transfer ID
@@ -50,6 +53,7 @@ pub extern "C" fn handle_transfer(event_ptr: i32) {
         .set_approved(alloc::vec![0u8; 20]) // clear approval on transfer
         .save();
 
+    #[cfg(target_arch = "wasm32")]
     unsafe { log_log(LOG_INFO, new_asc_string("erc721: Transfer entity saved")); }
 }
 
