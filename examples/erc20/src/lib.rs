@@ -59,7 +59,7 @@ fn find_bigint<'a>(params: &'a [graph_as_runtime::ethereum::EventParam], name: &
 ///
 /// graph-node calls this with `event_ptr` = AscPtr<EthereumEvent>.
 #[unsafe(no_mangle)]
-pub extern "C" fn handle_transfer(event_ptr: i32) -> i32 {
+pub extern "C" fn handle_transfer(event_ptr: i32) {
     let raw = unsafe { read_ethereum_event(event_ptr as u32) };
 
     // Log that we received the event.
@@ -109,6 +109,4 @@ pub extern "C" fn handle_transfer(event_ptr: i32) -> i32 {
         store_set(entity_type, id_str, data_ptr);
         log_log(LOG_INFO, new_asc_string("erc20: Transfer entity saved"));
     }
-
-    0
 }
