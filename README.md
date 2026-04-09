@@ -1,112 +1,90 @@
 # Graphite
 
-A Rust SDK for writing subgraphs on [The Graph](https://thegraph.com/) — no graph-node changes required.
+Write [The Graph](https://thegraph.com/) subgraph handlers in Rust. The compiled WASM is AssemblyScript-ABI-compatible — unmodified graph-node accepts it as a standard subgraph.
 
-**Status:** Phase 1 in progress (`graph-as-runtime` AS ABI layer).
+**Status: Working.** Tested live on Arbitrum One (USDC transfers). Zero graph-node changes required.
 
-## What Is It?
+## What It Is
 
-Graphite lets you write Graph subgraph mappings in Rust instead of AssemblyScript. The compiled WASM is AS-ABI-compatible, so it runs on any standard graph-node installation without modification — graph-node sees it as a normal subgraph.
-
-AssemblyScript subgraphs suffer from broken nullable handling, missing closures, opaque compiler crashes, and a hostile debugging experience. Graphite fixes all of that:
-
-- **Type safety** — `Option<T>` instead of runtime null crashes
-- **Ergonomic APIs** — `#[derive(Entity)]` and `#[handler]` macros
-- **Native testing** — `cargo test` with `MockHost`, no PostgreSQL required
-- **Rust ecosystem** — iterators, closures, and the full crates.io
+Graphite lets you write subgraph mappings in Rust instead of AssemblyScript. You get type safety, native `cargo test`, closures, iterators, and the full Rust ecosystem. graph-node sees perfectly ordinary AssemblyScript subgraph output and doesn't need to know otherwise.
 
 ## How It Works
 
-Graphite compiles to WASM that speaks the AssemblyScript object layout graph-node expects. The key facts:
-
-- graph-node only reads `rtId` and `rtSize` from AS object headers — the GC fields can be zero.
-- Strings are UTF-16LE. Entities are `TypedMap` objects. Graphite handles all of this transparently.
-- Host functions (`store.set`, `log.log`, etc.) are matched by name — Rust can import them directly.
-- The manifest declares `language: wasm/assemblyscript`, `apiVersion: 0.0.6` — graph-node accepts it without any special casing.
+Rust compiles to `wasm32-unknown-unknown`. The `graph-as-runtime` crate implements the AssemblyScript memory model — 20-byte object headers, UTF-16LE strings, `TypedMap` entity layout — so the WASM binary is structurally indistinguishable from AssemblyScript output. Host functions (`store.set`, `log.log`, etc.) are matched by name only, so Rust can import them directly. The manifest declares `language: wasm/assemblyscript`, `apiVersion: 0.0.6` — graph-node accepts it without any special handling.
 
 ```
 Your Rust handler
       │
       ▼
-graphite-macros (#[handler], #[derive(Entity)])
+graphite-macros  (#[handler], #[derive(Entity)])
       │
       ▼
-graph-as-runtime (AS ABI layer: allocator, UTF-16LE strings, TypedMap, host imports)
+graph-as-runtime  (AS ABI layer: allocator, UTF-16LE strings, TypedMap, host imports)
       │
       ▼
 WASM binary  ──────────────────►  unmodified graph-node
 ```
 
-## Crate Structure
-
-```
-graphite/
-├── graphite/           # Core SDK — primitives, host trait, MockHost
-├── graphite-macros/    # Proc macros — #[derive(Entity)], #[handler]
-├── graph-as-runtime/   # AS ABI layer (Phase 1, in progress)
-└── graphite-cli/       # CLI — graphite init, codegen, build, deploy
-```
-
-## API Preview
+## Quick Example
 
 ```rust
 use graphite::prelude::*;
 
-#[derive(Entity)]
-pub struct Transfer {
-    #[id]
-    id: String,
-    from: Bytes,
-    to: Bytes,
-    value: BigInt,
-}
-
 #[handler]
 pub fn handle_transfer(event: TransferEvent) {
-    let mut transfer = Transfer::new(&event.id());
-    transfer.from = Bytes::from_slice(event.from.as_slice());
-    transfer.to = Bytes::from_slice(event.to.as_slice());
-    transfer.value = event.value.clone();
-    transfer.save();
+    let id = format!("{}-{}", hex(event.tx_hash), event.log_index[0]);
+    Transfer::new(&id)
+        .set_from(event.from)
+        .set_to(event.to)
+        .set_value(event.value)
+        .save();
+}
+
+#[test]
+fn test_transfer() {
+    graphite::mock::reset();
+    handle_transfer_impl(&mock_transfer());
+    graphite::mock::assert_entity("Transfer", "0xabcd...-0")
+        .field_bytes("from", &[0xaa; 20]);
 }
 ```
 
-The `#[handler]` macro generates the `extern "C"` entry point that graph-node calls. In native tests the same code runs with `MockHost` — no Docker, no PostgreSQL.
+See [examples/erc20/src/lib.rs](examples/erc20/src/lib.rs) for the full working handler.
 
 ## CLI
 
 ```bash
-graphite init my-subgraph --network mainnet
-graphite codegen       # Generate Rust types from ABI + schema
-graphite build         # Compile to WASM (wasm32-unknown-unknown)
-graphite test          # Run tests (delegates to cargo test)
+graphite init my-subgraph          # Scaffold a new subgraph project
+graphite codegen                   # Generate Rust types from ABI + schema
+graphite build                     # Compile to WASM (runs cargo + wasm-opt)
 graphite deploy myname/mysubgraph  # Upload to IPFS + deploy via JSON-RPC
 ```
 
-## Status
+## Crate Structure
 
-| Component | Status |
-|-----------|--------|
-| Core primitives (`BigInt`, `Address`, `Bytes`, etc.) | Done |
-| `HostFunctions` trait + `MockHost` | Done |
-| `#[derive(Entity)]` + `#[handler]` macro structure | Done |
-| ABI + schema codegen | Done |
-| CLI (`init`, `codegen`, `build`, `test`, `deploy`) | Done |
-| `graph-as-runtime` AS ABI layer | **In progress (Phase 1)** |
-| AS-ABI handler entry point in macros | Phase 2 |
-| Codegen updated for AS types | Phase 3 |
-| Integration test on unmodified graph-node | Phase 4 |
-| ERC20/ERC721 examples ported | Phase 5 |
+| Crate | Purpose |
+|-------|---------|
+| `graph-as-runtime` | `no_std` AS ABI layer: allocator, type layout, host FFI |
+| `graphite-macros` | `#[handler]`, `#[derive(Entity)]` proc macros |
+| `graphite-cli` | CLI: `init`, `codegen`, `build`, `deploy` |
+| `graphite` | User-facing SDK, `MockHost` for native testing |
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the full breakdown.
+## Examples
+
+- [examples/erc20](examples/erc20/) — ERC20 Transfer indexer (the live-tested reference)
+- [examples/erc721](examples/erc721/) — ERC721 NFT transfer indexer
+
+## Documentation
+
+- [docs/getting-started.md](docs/getting-started.md) — end-to-end tutorial
 
 ## Building
 
 ```bash
-# Run all tests (native — no WASM toolchain needed)
+# Run tests natively (no WASM toolchain needed)
 cargo test -p graphite -p graphite-macros
 
-# Build an example to WASM (once Phase 2+ is complete)
+# Build an example to WASM
 rustup target add wasm32-unknown-unknown
 cargo build -p erc20-subgraph --target wasm32-unknown-unknown --release
 ```
