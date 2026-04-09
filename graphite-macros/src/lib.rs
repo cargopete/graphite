@@ -135,33 +135,43 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 /// constructing the typed event via `EventType::from_raw_event`, and delegating
 /// to the user's handler implementation.
 ///
+/// graph-node enforces strict return-type rules on exported WASM functions:
+/// - **Event handlers** must return `()` (void) — use `#[handler]`
+/// - **Block handlers** must return `i32` — use `#[handler(block)]`
+///
 /// # Signature
 ///
 /// The user's function must take two parameters:
-/// - First: the event type (e.g. `TransferEvent`) — read from AS memory
+/// - First: the event/block type (e.g. `TransferEvent`) — read from AS memory
 /// - Second: `ctx: &graphite::EventContext` — block/tx metadata
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust,ignore
+/// // Event handler — WASM export returns void
 /// #[handler]
 /// pub fn handle_transfer(event: &ERC20TransferEvent, ctx: &graphite::EventContext) {
 ///     // Handler logic here
 /// }
-/// ```
 ///
-/// Expands to an `extern "C" fn handle_transfer(event_ptr: i32) -> i32` entry point
-/// for WASM builds, and a plain function (for native test builds) that the caller
-/// provides the decoded event and context to directly.
+/// // Block handler — WASM export returns i32
+/// #[handler(block)]
+/// pub fn handle_block(block: &EthereumBlock, ctx: &graphite::EventContext) {
+///     // Block handler logic here
+/// }
+/// ```
 #[proc_macro_attribute]
-pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Detect whether this is a block handler via `#[handler(block)]`.
+    let is_block_handler = !attr.is_empty() && attr.to_string().trim() == "block";
+
     let input = parse_macro_input!(item as ItemFn);
     let fn_name = &input.sig.ident;
     let fn_body = &input.block;
     let fn_inputs = &input.sig.inputs;
     let fn_vis = &input.vis;
 
-    // Extract the event parameter type from the first argument.
+    // Extract the event/block parameter type from the first argument.
     let event_param = fn_inputs.first().expect("Handler must have at least one parameter (event)");
     let (param_name, param_type) = match event_param {
         syn::FnArg::Typed(pat_type) => {
@@ -176,6 +186,55 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // The impl function gets the original name suffixed with _impl.
     let impl_name = syn::Ident::new(&format!("{}_impl", fn_name), fn_name.span());
+
+    // Build the WASM entry point. Event handlers return void; block handlers return i32.
+    let wasm_entry = if is_block_handler {
+        quote! {
+            #[cfg(target_arch = "wasm32")]
+            #[unsafe(no_mangle)]
+            pub extern "C" fn #fn_name(event_ptr: i32) -> i32 {
+                let raw = unsafe {
+                    graph_as_runtime::ethereum::read_ethereum_event(event_ptr as u32)
+                };
+                let #param_name = match <#param_type as graph_as_runtime::ethereum::FromRawEvent>::from_raw_event(&raw) {
+                    Ok(e) => e,
+                    Err(_) => return 1,
+                };
+                let ctx = graphite::EventContext {
+                    block_number:    raw.block_number.clone(),
+                    block_timestamp: raw.block_timestamp.clone(),
+                    tx_hash:         raw.tx_hash,
+                    log_index:       raw.log_index.clone(),
+                    address:         raw.address,
+                };
+                #impl_name(&#param_name, &ctx);
+                0
+            }
+        }
+    } else {
+        // Event handler — graph-node expects no return value (void).
+        quote! {
+            #[cfg(target_arch = "wasm32")]
+            #[unsafe(no_mangle)]
+            pub extern "C" fn #fn_name(event_ptr: i32) {
+                let raw = unsafe {
+                    graph_as_runtime::ethereum::read_ethereum_event(event_ptr as u32)
+                };
+                let #param_name = match <#param_type as graph_as_runtime::ethereum::FromRawEvent>::from_raw_event(&raw) {
+                    Ok(e) => e,
+                    Err(_) => return,
+                };
+                let ctx = graphite::EventContext {
+                    block_number:    raw.block_number.clone(),
+                    block_timestamp: raw.block_timestamp.clone(),
+                    tx_hash:         raw.tx_hash,
+                    log_index:       raw.log_index.clone(),
+                    address:         raw.address,
+                };
+                #impl_name(&#param_name, &ctx);
+            }
+        }
+    };
 
     let expanded = quote! {
         // ---------------------------------------------------------------
@@ -201,28 +260,9 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
         // ---------------------------------------------------------------
         // WASM entry point — called by graph-node with an AscPtr to the
-        // EthereumEvent object in linear memory.
+        // event/block object in linear memory.
         // ---------------------------------------------------------------
-        #[cfg(target_arch = "wasm32")]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn #fn_name(event_ptr: i32) -> i32 {
-            let raw = unsafe {
-                graph_as_runtime::ethereum::read_ethereum_event(event_ptr as u32)
-            };
-            let #param_name = match <#param_type as graph_as_runtime::ethereum::FromRawEvent>::from_raw_event(&raw) {
-                Ok(e) => e,
-                Err(_) => return 1,
-            };
-            let ctx = graphite::EventContext {
-                block_number:    raw.block_number.clone(),
-                block_timestamp: raw.block_timestamp.clone(),
-                tx_hash:         raw.tx_hash,
-                log_index:       raw.log_index.clone(),
-                address:         raw.address,
-            };
-            #impl_name(&#param_name, &ctx);
-            0
-        }
+        #wasm_entry
     };
 
     TokenStream::from(expanded)
