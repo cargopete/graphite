@@ -14,5 +14,5 @@ type Transfer @entity {
   "Transaction hash"
   transactionHash: Bytes!
   "Token address (empty for now)"
-  token: String!
+  token: String
 }

@@ -8,7 +8,7 @@ dataSources:
     source:
       address: "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
       abi: ERC20
-      startBlock: 450527382
+      startBlock: 450659331
     mapping:
       kind: wasm/assemblyscript
       apiVersion: 0.0.6
