@@ -21,8 +21,10 @@
 
 // ============================================================================
 // graph-node host function imports (AS ABI, module = "env")
+// Only available when compiling to WASM — the symbols are provided by graph-node.
 // ============================================================================
 
+#[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
     // ========== Store ==========
@@ -89,6 +91,72 @@ unsafe extern "C" {
     /// AS abort signature: `abort(msg: u32, file: u32, line: u32, col: u32)`
     /// All pointers are AscPtr<AscString> (or 0).
     pub fn abort(msg: u32, file: u32, line: u32, col: u32);
+}
+
+// ============================================================================
+// Native stubs — used when running under `cargo test` (no WASM runtime).
+// These forward to the thread-local native_store.
+// ============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn store_set(_entity: u32, _id: u32, _data: u32) {
+    // The low-level AS-ABI path is not used in native tests.
+    // Use graph_as_runtime::native_store directly, or the graphite MockHost.
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn store_get(_entity: u32, _id: u32) -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn store_remove(_entity: u32, _id: u32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn log_log(level: u32, _message: u32) {
+    // Print a note so tests can see log calls without needing the WASM runtime.
+    let level_str = match level {
+        LOG_CRITICAL => "CRITICAL",
+        LOG_ERROR => "ERROR",
+        LOG_WARNING => "WARNING",
+        LOG_INFO => "INFO",
+        LOG_DEBUG => "DEBUG",
+        _ => "UNKNOWN",
+    };
+    eprintln!("[graph-node log] level={}", level_str);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn ethereum_call(_call: u32) -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn crypto_keccak256(_input: u32) -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn ipfs_cat(_hash: u32) -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn data_source_create(_name: u32, _params: u32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn data_source_address() -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn data_source_network() -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn abort(_msg: u32, _file: u32, _line: u32, _col: u32) {
+    panic!("graph-node abort called");
 }
 
 // ============================================================================

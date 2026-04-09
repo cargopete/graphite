@@ -326,6 +326,87 @@ unsafe fn read_ethereum_value(ptr: u32) -> EthereumValue {
 }
 
 // ============================================================================
+// RawEthereumEvent helper methods
+// ============================================================================
+
+impl RawEthereumEvent {
+    /// Find a named parameter and return its address bytes.
+    pub fn find_address(&self, name: &str) -> Result<[u8; 20], &'static str> {
+        for p in &self.params {
+            if p.name == name {
+                if let EthereumValue::Address(a) = &p.value {
+                    return Ok(*a);
+                }
+            }
+        }
+        Err("param not found or wrong type")
+    }
+
+    /// Find a named parameter and return its uint bytes (little-endian).
+    pub fn find_uint(&self, name: &str) -> Result<Vec<u8>, &'static str> {
+        for p in &self.params {
+            if p.name == name {
+                if let EthereumValue::Uint(b) = &p.value {
+                    return Ok(b.clone());
+                }
+            }
+        }
+        Err("param not found or wrong type")
+    }
+
+    /// Find a named parameter and return its int bytes (little-endian two's-complement).
+    pub fn find_int(&self, name: &str) -> Result<Vec<u8>, &'static str> {
+        for p in &self.params {
+            if p.name == name {
+                if let EthereumValue::Int(b) = &p.value {
+                    return Ok(b.clone());
+                }
+            }
+        }
+        Err("param not found or wrong type")
+    }
+
+    /// Find a named parameter and return its bool value.
+    pub fn find_bool(&self, name: &str) -> Result<bool, &'static str> {
+        for p in &self.params {
+            if p.name == name {
+                if let EthereumValue::Bool(b) = &p.value {
+                    return Ok(*b);
+                }
+            }
+        }
+        Err("param not found or wrong type")
+    }
+
+    /// Find a named parameter and return its string value.
+    pub fn find_string(&self, name: &str) -> Result<String, &'static str> {
+        for p in &self.params {
+            if p.name == name {
+                if let EthereumValue::String(s) = &p.value {
+                    return Ok(s.clone());
+                }
+            }
+        }
+        Err("param not found or wrong type")
+    }
+
+    /// Find a named parameter and return its bytes (dynamic or fixed).
+    pub fn find_bytes(&self, name: &str) -> Result<Vec<u8>, &'static str> {
+        for p in &self.params {
+            if p.name == name {
+                match &p.value {
+                    EthereumValue::Bytes(b) | EthereumValue::FixedBytes(b) => {
+                        return Ok(b.clone())
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Err("param not found or wrong type")
+    }
+}
+
+// ============================================================================
 // Top-level entry point
 // ============================================================================
 

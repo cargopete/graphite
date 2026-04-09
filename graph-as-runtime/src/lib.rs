@@ -20,19 +20,37 @@
 //!
 //! # no_std
 //!
-//! This crate is `no_std`. Use `alloc::string::String` and `alloc::vec::Vec`
-//! as usual — they are re-exported from the crate root for convenience.
+//! This crate is `no_std` when targeting `wasm32`. For native builds (tests),
+//! it links against the standard library so thread-locals and the system
+//! allocator are available.
 
-#![no_std]
+#![cfg_attr(target_arch = "wasm32", no_std)]
 #![allow(clippy::missing_safety_doc)]
 
 extern crate alloc;
 
+/// WASM-only: bump allocator and AS runtime exports.
+#[cfg(target_arch = "wasm32")]
 pub mod alloc_impl;
+
+/// WASM-only: AS type constructors (string, bytes, TypedMap, Value, ...).
+#[cfg(target_arch = "wasm32")]
 pub mod as_types;
+
+/// WASM-only: EntityBuilder for constructing AS TypedMap objects.
+#[cfg(target_arch = "wasm32")]
+pub mod entity;
+
+/// WASM-only: panic handler that forwards to graph-node's abort.
+#[cfg(target_arch = "wasm32")]
+pub mod panic_handler;
+
 pub mod class_ids;
 pub mod ethereum;
 pub mod ffi;
-pub mod panic_handler;
+
+/// Native-only: thread-local in-memory store for unit tests.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod native_store;
 
 pub use alloc::{string::String, vec::Vec};
