@@ -71,6 +71,14 @@ enum Commands {
         #[arg(long)]
         ipfs: Option<String>,
 
+        /// Deploy key for authentication (Graph Studio)
+        #[arg(long)]
+        deploy_key: Option<String>,
+
+        /// Version label (Graph Studio)
+        #[arg(long)]
+        version_label: Option<String>,
+
         /// Subgraph name (e.g., "username/subgraph-name")
         name: String,
     },
@@ -111,9 +119,21 @@ fn main() -> Result<()> {
             cmd_test(&args)
         }
 
-        Commands::Deploy { node, ipfs, name } => {
+        Commands::Deploy {
+            node,
+            ipfs,
+            deploy_key,
+            version_label,
+            name,
+        } => {
             println!("Deploying subgraph: {}", name);
-            cmd_deploy(node.as_deref(), ipfs.as_deref(), &name)
+            cmd_deploy(
+                node.as_deref(),
+                ipfs.as_deref(),
+                &name,
+                deploy_key.as_deref(),
+                version_label.as_deref(),
+            )
         }
     }
 }
@@ -483,6 +503,12 @@ fn cmd_test(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn cmd_deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> {
-    deploy::deploy(node, ipfs, name)
+fn cmd_deploy(
+    node: Option<&str>,
+    ipfs: Option<&str>,
+    name: &str,
+    deploy_key: Option<&str>,
+    version_label: Option<&str>,
+) -> Result<()> {
+    deploy::deploy(node, ipfs, name, deploy_key, version_label)
 }

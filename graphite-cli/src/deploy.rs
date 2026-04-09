@@ -13,7 +13,13 @@ use std::path::{Path, PathBuf};
 const DEFAULT_IPFS: &str = "http://localhost:5001";
 const DEFAULT_NODE: &str = "http://localhost:8020";
 
-pub fn deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> {
+pub fn deploy(
+    node: Option<&str>,
+    ipfs: Option<&str>,
+    name: &str,
+    deploy_key: Option<&str>,
+    version_label: Option<&str>,
+) -> Result<()> {
     let ipfs_url = ipfs.unwrap_or(DEFAULT_IPFS);
     let node_url = node.unwrap_or(DEFAULT_NODE);
 
@@ -44,7 +50,7 @@ pub fn deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> 
             )
         })?;
 
-        let hash = upload_to_ipfs(ipfs_url, &resolved)
+        let hash = upload_to_ipfs(ipfs_url, &resolved, deploy_key)
             .with_context(|| format!("Failed to upload {} to IPFS", resolved.display()))?;
         println!("  Uploaded {} -> {}", file_ref, hash);
         path_to_hash.push((file_ref.clone(), hash));
@@ -54,36 +60,36 @@ pub fn deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> 
     let ipfs_manifest = rewrite_manifest(&manifest_str, &path_to_hash);
 
     // Upload manifest to IPFS
-    let manifest_hash = upload_bytes_to_ipfs(ipfs_url, ipfs_manifest.as_bytes(), "subgraph.yaml")
-        .context("Failed to upload manifest to IPFS")?;
+    let manifest_hash =
+        upload_bytes_to_ipfs(ipfs_url, ipfs_manifest.as_bytes(), "subgraph.yaml", deploy_key)
+            .context("Failed to upload manifest to IPFS")?;
     println!("  Manifest uploaded: {}", manifest_hash);
 
     // Create subgraph name (idempotent — ignores "already exists" errors)
-    println!("  Creating subgraph name: {}", name);
-    match jsonrpc_call(
-        node_url,
-        "subgraph_create",
-        &serde_json::json!({"name": name}),
-    ) {
-        Ok(result) => println!("  Created: {}", result),
-        Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("already") {
-                println!("  (already exists, continuing)");
-            } else {
-                return Err(e).context("subgraph_create failed");
+    // Studio doesn't use subgraph_create; skip if we have a deploy key.
+    if deploy_key.is_none() {
+        println!("  Creating subgraph name: {}", name);
+        match jsonrpc_call(node_url, "subgraph_create", &serde_json::json!({"name": name}), deploy_key) {
+            Ok(result) => println!("  Created: {}", result),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("already") {
+                    println!("  (already exists, continuing)");
+                } else {
+                    return Err(e).context("subgraph_create failed");
+                }
             }
         }
     }
 
     // Deploy
     println!("  Deploying...");
-    let result = jsonrpc_call(
-        node_url,
-        "subgraph_deploy",
-        &serde_json::json!({"name": name, "ipfs_hash": manifest_hash}),
-    )
-    .context("subgraph_deploy failed")?;
+    let mut deploy_params = serde_json::json!({"name": name, "ipfs_hash": manifest_hash});
+    if let Some(label) = version_label {
+        deploy_params["version_label"] = serde_json::Value::String(label.to_string());
+    }
+    let result = jsonrpc_call(node_url, "subgraph_deploy", &deploy_params, deploy_key)
+        .context("subgraph_deploy failed")?;
     println!("  Deployed: {}", result);
 
     println!();
@@ -172,25 +178,27 @@ fn rewrite_manifest(manifest: &str, replacements: &[(String, String)]) -> String
 }
 
 /// Upload a file to IPFS, returns the hash.
-fn upload_to_ipfs(ipfs_url: &str, path: &Path) -> Result<String> {
+fn upload_to_ipfs(ipfs_url: &str, path: &Path, auth: Option<&str>) -> Result<String> {
     let data = std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
     let filename = path
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "file".to_string());
-    upload_bytes_to_ipfs(ipfs_url, &data, &filename)
+    upload_bytes_to_ipfs(ipfs_url, &data, &filename, auth)
 }
 
 /// Upload raw bytes to IPFS, returns the hash.
-fn upload_bytes_to_ipfs(ipfs_url: &str, data: &[u8], filename: &str) -> Result<String> {
+fn upload_bytes_to_ipfs(
+    ipfs_url: &str,
+    data: &[u8],
+    filename: &str,
+    auth: Option<&str>,
+) -> Result<String> {
     let url = format!("{}/api/v0/add", ipfs_url);
 
-    // Build multipart form body manually.
-    // ureq 3.x uses a different multipart API — we'll use the raw approach.
     let boundary = "----graphite-boundary-a1b2c3";
     let mut body = Vec::new();
 
-    // Part header
     body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
     body.extend_from_slice(
         format!(
@@ -203,11 +211,14 @@ fn upload_bytes_to_ipfs(ipfs_url: &str, data: &[u8], filename: &str) -> Result<S
     body.extend_from_slice(data);
     body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
 
-    let mut response = ureq::post(&url)
-        .header(
-            "Content-Type",
-            &format!("multipart/form-data; boundary={}", boundary),
-        )
+    let mut req = ureq::post(&url).header(
+        "Content-Type",
+        &format!("multipart/form-data; boundary={}", boundary),
+    );
+    if let Some(key) = auth {
+        req = req.header("Authorization", &format!("Bearer {}", key));
+    }
+    let mut response = req
         .send(&body)
         .with_context(|| format!("IPFS upload failed for {}", filename))?;
 
@@ -227,6 +238,7 @@ fn jsonrpc_call(
     node_url: &str,
     method: &str,
     params: &serde_json::Value,
+    auth: Option<&str>,
 ) -> Result<serde_json::Value> {
     let body = serde_json::json!({
         "jsonrpc": "2.0",
@@ -235,7 +247,11 @@ fn jsonrpc_call(
         "id": 1
     });
 
-    let mut resp = ureq::post(node_url)
+    let mut req = ureq::post(node_url);
+    if let Some(key) = auth {
+        req = req.header("Authorization", &format!("Bearer {}", key));
+    }
+    let mut resp = req
         .send_json(&body)
         .with_context(|| format!("JSON-RPC call to {} failed", method))?;
 
