@@ -21,9 +21,16 @@ pub fn generate_abi_bindings(abi_path: &Path, contract_name: &str) -> Result<Str
     let mut output = String::new();
 
     // File header
-    writeln!(output, "//! Generated event bindings for {} contract.", contract_name)?;
+    writeln!(
+        output,
+        "//! Generated event bindings for {} contract.",
+        contract_name
+    )?;
     writeln!(output, "//!")?;
-    writeln!(output, "//! DO NOT EDIT — regenerate with `graphite codegen`")?;
+    writeln!(
+        output,
+        "//! DO NOT EDIT — regenerate with `graphite codegen`"
+    )?;
     writeln!(output)?;
     writeln!(output, "#![allow(dead_code)]")?;
     writeln!(output, "#![allow(unused_imports)]")?;
@@ -113,8 +120,14 @@ fn generate_from_raw_event_impl(event: &Event, struct_name: &str) -> Result<Stri
         writeln!(output, "            {},", field_name)?;
     }
 
-    writeln!(output, "            block_number: raw.block_number.clone(),")?;
-    writeln!(output, "            block_timestamp: raw.block_timestamp.clone(),")?;
+    writeln!(
+        output,
+        "            block_number: raw.block_number.clone(),"
+    )?;
+    writeln!(
+        output,
+        "            block_timestamp: raw.block_timestamp.clone(),"
+    )?;
     writeln!(output, "            tx_hash: raw.tx_hash,")?;
     writeln!(output, "            log_index: raw.log_index.clone(),")?;
     writeln!(output, "            address: raw.address,")?;

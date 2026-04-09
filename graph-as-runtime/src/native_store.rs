@@ -22,7 +22,10 @@ pub enum FieldValue {
 /// In-memory store: entity_type -> id -> (field_name -> FieldValue).
 #[derive(Default, Debug)]
 pub struct NativeStore {
-    pub entities: HashMap<std::string::String, HashMap<std::string::String, HashMap<std::string::String, FieldValue>>>,
+    pub entities: HashMap<
+        std::string::String,
+        HashMap<std::string::String, HashMap<std::string::String, FieldValue>>,
+    >,
     /// Captured log messages: (level, message).
     pub logs: Vec<(u32, std::string::String)>,
 }
@@ -59,10 +62,7 @@ impl NativeStore {
 
     /// Count entities of a given type.
     pub fn entity_count(&self, entity_type: &str) -> usize {
-        self.entities
-            .get(entity_type)
-            .map(|m| m.len())
-            .unwrap_or(0)
+        self.entities.get(entity_type).map(|m| m.len()).unwrap_or(0)
     }
 
     /// Check if an entity exists.

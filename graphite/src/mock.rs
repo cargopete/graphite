@@ -110,9 +110,12 @@ impl EntityAssert {
     pub fn field_bytes(self, field: &str, expected: &[u8]) -> Self {
         match self.get_field(field) {
             FieldValue::Bytes(b) => assert_eq!(
-                b.as_slice(), expected,
+                b.as_slice(),
+                expected,
                 "Entity {}/{} field '{}': bytes mismatch",
-                self.entity_type, self.id, field
+                self.entity_type,
+                self.id,
+                field
             ),
             other => panic!(
                 "Entity {}/{} field '{}': expected Bytes, got {:?}",
@@ -126,9 +129,12 @@ impl EntityAssert {
     pub fn field_bigint(self, field: &str, expected: &[u8]) -> Self {
         match self.get_field(field) {
             FieldValue::BigInt(b) => assert_eq!(
-                b.as_slice(), expected,
+                b.as_slice(),
+                expected,
                 "Entity {}/{} field '{}': BigInt bytes mismatch",
-                self.entity_type, self.id, field
+                self.entity_type,
+                self.id,
+                field
             ),
             other => panic!(
                 "Entity {}/{} field '{}': expected BigInt, got {:?}",
@@ -252,9 +258,7 @@ impl MockHost {
 
 /// Convert a graphite `Entity` (BTreeMap<String, Value>) into the native
 /// store's `HashMap<String, FieldValue>` representation.
-fn entity_to_native_fields(
-    entity: &Entity,
-) -> HashMap<String, FieldValue> {
+fn entity_to_native_fields(entity: &Entity) -> HashMap<String, FieldValue> {
     entity
         .iter()
         .map(|(k, v)| {
@@ -394,8 +398,7 @@ mod tests {
 
         assert!(has_entity("User", "0x01"));
         assert_eq!(entity_count("User"), 1);
-        assert_entity("User", "0x01")
-            .field_string("name", "Alice");
+        assert_entity("User", "0x01").field_string("name", "Alice");
     }
 
     #[test]

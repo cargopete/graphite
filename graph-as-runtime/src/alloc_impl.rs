@@ -223,7 +223,11 @@ pub extern "C" fn _start() {}
 pub extern "C" fn heap_usage() -> u32 {
     let base = unsafe { __heap_base };
     let ptr = BUMP_PTR.load(Ordering::Relaxed);
-    if ptr == 0 { 0 } else { ptr.saturating_sub(base) }
+    if ptr == 0 {
+        0
+    } else {
+        ptr.saturating_sub(base)
+    }
 }
 
 // ============================================================================

@@ -5,7 +5,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, ItemFn};
+use syn::{DeriveInput, ItemFn, parse_macro_input};
 
 /// Derive macro for entity types.
 ///
@@ -172,7 +172,9 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_vis = &input.vis;
 
     // Extract the event/block parameter type from the first argument.
-    let event_param = fn_inputs.first().expect("Handler must have at least one parameter (event)");
+    let event_param = fn_inputs
+        .first()
+        .expect("Handler must have at least one parameter (event)");
     let (param_name, param_type) = match event_param {
         syn::FnArg::Typed(pat_type) => {
             let name = match &*pat_type.pat {

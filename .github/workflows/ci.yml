@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  build-wasm:
+    name: Build WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-opt
+        run: |
+          curl -sL https://github.com/WebAssembly/binaryen/releases/download/version_119/binaryen-version_119-x86_64-linux.tar.gz \
+            | tar xz --strip-components=1 -C /usr/local binaryen-version_119/bin/wasm-opt
+          wasm-opt --version
+
+      - name: Build ERC20 WASM
+        run: |
+          cargo build -p erc20 --target wasm32-unknown-unknown --release
+          wasm-opt \
+            --enable-bulk-memory --llvm-memory-copy-fill-lowering -Oz \
+            target/wasm32-unknown-unknown/release/erc20.wasm \
+            -o target/wasm32-unknown-unknown/release/erc20.opt.wasm
+          ls -lh target/wasm32-unknown-unknown/release/erc20.opt.wasm
+
+      - name: Build ERC721 WASM
+        run: |
+          cargo build -p erc721 --target wasm32-unknown-unknown --release
+          wasm-opt \
+            --enable-bulk-memory --llvm-memory-copy-fill-lowering -Oz \
+            target/wasm32-unknown-unknown/release/erc721.wasm \
+            -o target/wasm32-unknown-unknown/release/erc721.opt.wasm
+          ls -lh target/wasm32-unknown-unknown/release/erc721.opt.wasm
+
+  fmt-clippy:
+    name: Fmt + Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace -- -D warnings

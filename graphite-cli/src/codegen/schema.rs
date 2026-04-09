@@ -22,7 +22,10 @@ pub fn generate_schema_entities(schema_path: &Path) -> Result<String> {
     // File header
     writeln!(output, "//! Generated entity types from schema.graphql.")?;
     writeln!(output, "//!")?;
-    writeln!(output, "//! DO NOT EDIT — regenerate with `graphite codegen`")?;
+    writeln!(
+        output,
+        "//! DO NOT EDIT — regenerate with `graphite codegen`"
+    )?;
     writeln!(output)?;
     writeln!(output, "#![allow(dead_code)]")?;
     writeln!(output, "#![allow(unused_imports)]")?;
@@ -73,7 +76,11 @@ fn generate_entity_struct<'a>(name: &str, fields: &'a [Field<'a, String>]) -> Re
         .find(|f| f.name == "id")
         .ok_or_else(|| anyhow::anyhow!("Entity {} must have an 'id' field", name))?;
 
-    writeln!(output, "/// Generated from `{}` entity in schema.graphql.", name)?;
+    writeln!(
+        output,
+        "/// Generated from `{}` entity in schema.graphql.",
+        name
+    )?;
     writeln!(output, "pub struct {} {{", name)?;
 
     // Emit fields
@@ -120,7 +127,11 @@ fn generate_entity_struct<'a>(name: &str, fields: &'a [Field<'a, String>]) -> Re
         let (rust_type, _) = graphql_type_to_rust(&field.field_type);
         let setter_name = format!("set_{}", field_name);
 
-        writeln!(output, "    pub fn {}(mut self, v: {}) -> Self {{", setter_name, rust_type)?;
+        writeln!(
+            output,
+            "    pub fn {}(mut self, v: {}) -> Self {{",
+            setter_name, rust_type
+        )?;
         writeln!(output, "        self.{} = Some(v);", field_name)?;
         writeln!(output, "        self")?;
         writeln!(output, "    }}")?;
@@ -146,8 +157,15 @@ fn generate_entity_struct<'a>(name: &str, fields: &'a [Field<'a, String>]) -> Re
         output.push_str(&builder_call);
     }
 
-    writeln!(output, "        let entity_ptr = graph_as_runtime::as_types::new_asc_string({:?});", name)?;
-    writeln!(output, "        let id_ptr = graph_as_runtime::as_types::new_asc_string(&self.id);")?;
+    writeln!(
+        output,
+        "        let entity_ptr = graph_as_runtime::as_types::new_asc_string({:?});",
+        name
+    )?;
+    writeln!(
+        output,
+        "        let id_ptr = graph_as_runtime::as_types::new_asc_string(&self.id);"
+    )?;
     writeln!(output, "        unsafe {{")?;
     writeln!(
         output,
@@ -240,7 +258,11 @@ fn graphql_field_to_native_store_call<'a>(
 }
 
 /// Generate the `b.set_*` call inside `save()` for a given field.
-fn graphql_field_to_builder_call<'a>(ty: &'a Type<'a, String>, field_name: &str, gql_name: &str) -> String {
+fn graphql_field_to_builder_call<'a>(
+    ty: &'a Type<'a, String>,
+    field_name: &str,
+    gql_name: &str,
+) -> String {
     let base_scalar = get_base_scalar(ty);
 
     // List types are not directly serialisable as a single store field; skip them.

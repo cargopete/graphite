@@ -395,9 +395,7 @@ impl RawEthereumEvent {
         for p in &self.params {
             if p.name == name {
                 match &p.value {
-                    EthereumValue::Bytes(b) | EthereumValue::FixedBytes(b) => {
-                        return Ok(b.clone())
-                    }
+                    EthereumValue::Bytes(b) | EthereumValue::FixedBytes(b) => return Ok(b.clone()),
                     _ => {}
                 }
             }
@@ -454,8 +452,16 @@ pub unsafe fn read_ethereum_event(ptr: u32) -> RawEthereumEvent {
         let (block_number, block_timestamp) = if block_ptr != 0 {
             let num_ptr = read_u32_at(block_ptr, 28);
             let ts_ptr = read_u32_at(block_ptr, 40);
-            let num = if num_ptr != 0 { read_uint8array(num_ptr) } else { vec![0u8] };
-            let ts = if ts_ptr != 0 { read_uint8array(ts_ptr) } else { vec![0u8] };
+            let num = if num_ptr != 0 {
+                read_uint8array(num_ptr)
+            } else {
+                vec![0u8]
+            };
+            let ts = if ts_ptr != 0 {
+                read_uint8array(ts_ptr)
+            } else {
+                vec![0u8]
+            };
             (num, ts)
         } else {
             (vec![0u8], vec![0u8])

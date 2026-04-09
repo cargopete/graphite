@@ -41,8 +41,12 @@ impl Token {
     pub fn save(&self) {
         let mut b = graph_as_runtime::entity::EntityBuilder::new();
         b.set_string("id", &self.id);
-        if let Some(ref v) = self.owner { b.set_bytes("owner", v); }
-        if let Some(ref v) = self.approved { b.set_bytes("approved", v); }
+        if let Some(ref v) = self.owner {
+            b.set_bytes("owner", v);
+        }
+        if let Some(ref v) = self.approved {
+            b.set_bytes("approved", v);
+        }
         let entity_ptr = graph_as_runtime::as_types::new_asc_string("Token");
         let id_ptr = graph_as_runtime::as_types::new_asc_string(&self.id);
         unsafe {
@@ -52,12 +56,16 @@ impl Token {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&self) {
-        use std::collections::HashMap;
         use graph_as_runtime::native_store::{FieldValue, STORE};
+        use std::collections::HashMap;
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
-        if let Some(ref v) = self.owner { fields.insert("owner".to_string(), FieldValue::Bytes(v.clone())); }
-        if let Some(ref v) = self.approved { fields.insert("approved".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.owner {
+            fields.insert("owner".to_string(), FieldValue::Bytes(v.clone()));
+        }
+        if let Some(ref v) = self.approved {
+            fields.insert("approved".to_string(), FieldValue::Bytes(v.clone()));
+        }
         STORE.with(|s| s.borrow_mut().set_entity("Token", &self.id, fields));
     }
 }
@@ -120,12 +128,24 @@ impl Transfer {
     pub fn save(&self) {
         let mut b = graph_as_runtime::entity::EntityBuilder::new();
         b.set_string("id", &self.id);
-        if let Some(ref v) = self.from { b.set_bytes("from", v); }
-        if let Some(ref v) = self.to { b.set_bytes("to", v); }
-        if let Some(ref v) = self.token_id { b.set_bigint("tokenId", v); }
-        if let Some(ref v) = self.block_number { b.set_bigint("blockNumber", v); }
-        if let Some(ref v) = self.timestamp { b.set_bigint("timestamp", v); }
-        if let Some(ref v) = self.transaction_hash { b.set_bytes("transactionHash", v); }
+        if let Some(ref v) = self.from {
+            b.set_bytes("from", v);
+        }
+        if let Some(ref v) = self.to {
+            b.set_bytes("to", v);
+        }
+        if let Some(ref v) = self.token_id {
+            b.set_bigint("tokenId", v);
+        }
+        if let Some(ref v) = self.block_number {
+            b.set_bigint("blockNumber", v);
+        }
+        if let Some(ref v) = self.timestamp {
+            b.set_bigint("timestamp", v);
+        }
+        if let Some(ref v) = self.transaction_hash {
+            b.set_bytes("transactionHash", v);
+        }
         let entity_ptr = graph_as_runtime::as_types::new_asc_string("Transfer");
         let id_ptr = graph_as_runtime::as_types::new_asc_string(&self.id);
         unsafe {
@@ -135,16 +155,28 @@ impl Transfer {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&self) {
-        use std::collections::HashMap;
         use graph_as_runtime::native_store::{FieldValue, STORE};
+        use std::collections::HashMap;
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
-        if let Some(ref v) = self.from { fields.insert("from".to_string(), FieldValue::Bytes(v.clone())); }
-        if let Some(ref v) = self.to { fields.insert("to".to_string(), FieldValue::Bytes(v.clone())); }
-        if let Some(ref v) = self.token_id { fields.insert("tokenId".to_string(), FieldValue::BigInt(v.clone())); }
-        if let Some(ref v) = self.block_number { fields.insert("blockNumber".to_string(), FieldValue::BigInt(v.clone())); }
-        if let Some(ref v) = self.timestamp { fields.insert("timestamp".to_string(), FieldValue::BigInt(v.clone())); }
-        if let Some(ref v) = self.transaction_hash { fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.from {
+            fields.insert("from".to_string(), FieldValue::Bytes(v.clone()));
+        }
+        if let Some(ref v) = self.to {
+            fields.insert("to".to_string(), FieldValue::Bytes(v.clone()));
+        }
+        if let Some(ref v) = self.token_id {
+            fields.insert("tokenId".to_string(), FieldValue::BigInt(v.clone()));
+        }
+        if let Some(ref v) = self.block_number {
+            fields.insert("blockNumber".to_string(), FieldValue::BigInt(v.clone()));
+        }
+        if let Some(ref v) = self.timestamp {
+            fields.insert("timestamp".to_string(), FieldValue::BigInt(v.clone()));
+        }
+        if let Some(ref v) = self.transaction_hash {
+            fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone()));
+        }
         STORE.with(|s| s.borrow_mut().set_entity("Transfer", &self.id, fields));
     }
 }
@@ -200,11 +232,21 @@ impl Approval {
     pub fn save(&self) {
         let mut b = graph_as_runtime::entity::EntityBuilder::new();
         b.set_string("id", &self.id);
-        if let Some(ref v) = self.owner { b.set_bytes("owner", v); }
-        if let Some(ref v) = self.approved { b.set_bytes("approved", v); }
-        if let Some(ref v) = self.token_id { b.set_bigint("tokenId", v); }
-        if let Some(ref v) = self.block_number { b.set_bigint("blockNumber", v); }
-        if let Some(ref v) = self.transaction_hash { b.set_bytes("transactionHash", v); }
+        if let Some(ref v) = self.owner {
+            b.set_bytes("owner", v);
+        }
+        if let Some(ref v) = self.approved {
+            b.set_bytes("approved", v);
+        }
+        if let Some(ref v) = self.token_id {
+            b.set_bigint("tokenId", v);
+        }
+        if let Some(ref v) = self.block_number {
+            b.set_bigint("blockNumber", v);
+        }
+        if let Some(ref v) = self.transaction_hash {
+            b.set_bytes("transactionHash", v);
+        }
         let entity_ptr = graph_as_runtime::as_types::new_asc_string("Approval");
         let id_ptr = graph_as_runtime::as_types::new_asc_string(&self.id);
         unsafe {
@@ -214,16 +256,25 @@ impl Approval {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&self) {
-        use std::collections::HashMap;
         use graph_as_runtime::native_store::{FieldValue, STORE};
+        use std::collections::HashMap;
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
-        if let Some(ref v) = self.owner { fields.insert("owner".to_string(), FieldValue::Bytes(v.clone())); }
-        if let Some(ref v) = self.approved { fields.insert("approved".to_string(), FieldValue::Bytes(v.clone())); }
-        if let Some(ref v) = self.token_id { fields.insert("tokenId".to_string(), FieldValue::BigInt(v.clone())); }
-        if let Some(ref v) = self.block_number { fields.insert("blockNumber".to_string(), FieldValue::BigInt(v.clone())); }
-        if let Some(ref v) = self.transaction_hash { fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.owner {
+            fields.insert("owner".to_string(), FieldValue::Bytes(v.clone()));
+        }
+        if let Some(ref v) = self.approved {
+            fields.insert("approved".to_string(), FieldValue::Bytes(v.clone()));
+        }
+        if let Some(ref v) = self.token_id {
+            fields.insert("tokenId".to_string(), FieldValue::BigInt(v.clone()));
+        }
+        if let Some(ref v) = self.block_number {
+            fields.insert("blockNumber".to_string(), FieldValue::BigInt(v.clone()));
+        }
+        if let Some(ref v) = self.transaction_hash {
+            fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone()));
+        }
         STORE.with(|s| s.borrow_mut().set_entity("Approval", &self.id, fields));
     }
 }
-

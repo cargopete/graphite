@@ -146,8 +146,8 @@ fn new_uint8array_like(class_id: u32, data: &[u8]) -> u32 {
     let wrapper_ptr = alloc_as_obj(class_id, 12);
     let fields = wrapper_ptr as *mut u32;
     unsafe {
-        fields.write(buf_ptr);           // buffer
-        fields.add(1).write(buf_ptr);    // dataStart (same as buffer ptr for us)
+        fields.write(buf_ptr); // buffer
+        fields.add(1).write(buf_ptr); // dataStart (same as buffer ptr for us)
         fields.add(2).write(data.len() as u32); // length
     }
 
@@ -201,8 +201,8 @@ fn new_value(kind: u32, payload: u64) -> u32 {
     let ptr = alloc_as_obj(class_ids::VALUE, 16);
     let fields = ptr as *mut u32;
     unsafe {
-        fields.write(kind);            // kind
-        fields.add(1).write(0);        // _padding (explicit, matches AscEnum._padding)
+        fields.write(kind); // kind
+        fields.add(1).write(0); // _padding (explicit, matches AscEnum._padding)
         // payload as two u32 words, little-endian
         let payload_ptr = fields.add(2) as *mut u64;
         payload_ptr.write_unaligned(payload);
@@ -262,10 +262,10 @@ pub fn new_typed_map_entry_array(entries: &[u32]) -> u32 {
     let arr_ptr = alloc_as_obj(class_ids::ARRAY_TYPED_MAP_ENTRY, 16);
     let arr_fields = arr_ptr as *mut u32;
     unsafe {
-        arr_fields.write(buf_ptr);                      // buffer
-        arr_fields.add(1).write(buf_ptr);               // buffer_data_start (= buffer start)
-        arr_fields.add(2).write(buf_bytes);             // buffer_data_length (bytes)
-        arr_fields.add(3).write(entries.len() as u32);  // length (element count)
+        arr_fields.write(buf_ptr); // buffer
+        arr_fields.add(1).write(buf_ptr); // buffer_data_start (= buffer start)
+        arr_fields.add(2).write(buf_bytes); // buffer_data_length (bytes)
+        arr_fields.add(3).write(entries.len() as u32); // length (element count)
     }
 
     arr_ptr

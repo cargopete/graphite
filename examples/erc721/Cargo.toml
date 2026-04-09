@@ -9,6 +9,9 @@ crate-type = ["cdylib"]
 [dependencies]
 graph-as-runtime = { path = "../../graph-as-runtime" }
 
+[dev-dependencies]
+graphite = { path = "../../graphite" }
+
 [profile.release]
 panic = "abort"
 lto = "fat"

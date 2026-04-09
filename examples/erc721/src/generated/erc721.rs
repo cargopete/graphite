@@ -23,7 +23,9 @@ pub struct ERC721ApprovalEvent {
 }
 
 impl graph_as_runtime::ethereum::FromRawEvent for ERC721ApprovalEvent {
-    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
+    fn from_raw_event(
+        raw: &graph_as_runtime::ethereum::RawEthereumEvent,
+    ) -> Result<Self, &'static str> {
         let owner = raw.find_address("owner")?;
         let approved = raw.find_address("approved")?;
         let token_id = raw.find_uint("tokenId")?;
@@ -41,7 +43,6 @@ impl graph_as_runtime::ethereum::FromRawEvent for ERC721ApprovalEvent {
     }
 }
 
-
 /// Generated from `ApprovalForAll` event.
 pub struct ERC721ApprovalForAllEvent {
     pub owner: [u8; 20],
@@ -55,7 +56,9 @@ pub struct ERC721ApprovalForAllEvent {
 }
 
 impl graph_as_runtime::ethereum::FromRawEvent for ERC721ApprovalForAllEvent {
-    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
+    fn from_raw_event(
+        raw: &graph_as_runtime::ethereum::RawEthereumEvent,
+    ) -> Result<Self, &'static str> {
         let owner = raw.find_address("owner")?;
         let operator = raw.find_address("operator")?;
         let approved = raw.find_bool("approved")?;
@@ -73,7 +76,6 @@ impl graph_as_runtime::ethereum::FromRawEvent for ERC721ApprovalForAllEvent {
     }
 }
 
-
 /// Generated from `Transfer` event.
 pub struct ERC721TransferEvent {
     pub from: [u8; 20],
@@ -87,7 +89,9 @@ pub struct ERC721TransferEvent {
 }
 
 impl graph_as_runtime::ethereum::FromRawEvent for ERC721TransferEvent {
-    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
+    fn from_raw_event(
+        raw: &graph_as_runtime::ethereum::RawEthereumEvent,
+    ) -> Result<Self, &'static str> {
         let from = raw.find_address("from")?;
         let to = raw.find_address("to")?;
         let token_id = raw.find_uint("tokenId")?;
@@ -104,5 +108,3 @@ impl graph_as_runtime::ethereum::FromRawEvent for ERC721TransferEvent {
         })
     }
 }
-
-

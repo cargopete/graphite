@@ -3,7 +3,7 @@
 //! Defines the `Entity` type used for serializing data to graph-node's store,
 //! and the `Value` enum representing field values.
 
-use crate::primitives::{Address, BigDecimal, BigInt, Bytes, B256};
+use crate::primitives::{Address, B256, BigDecimal, BigInt, Bytes};
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;

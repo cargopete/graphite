@@ -44,16 +44,16 @@ pub mod mock;
 /// Prelude module — import everything you need with `use graphite::prelude::*`
 pub mod prelude {
     pub use crate::host::HostFunctions;
-    pub use crate::primitives::{Address, BigDecimal, BigInt, Bytes, B256, U256};
+    pub use crate::primitives::{Address, B256, BigDecimal, BigInt, Bytes, U256};
     pub use crate::store::{Entity, FromValue, Store, Value};
-    pub use graphite_macros::{handler, Entity};
+    pub use graphite_macros::{Entity, handler};
 
     #[cfg(feature = "std")]
     pub use crate::testing::MockHost;
 }
 
 // Re-export key types at crate root
-pub use primitives::{Address, BigDecimal, BigInt, Bytes, B256, U256};
+pub use primitives::{Address, B256, BigDecimal, BigInt, Bytes, U256};
 
 /// Context passed to every event handler alongside the decoded event.
 ///

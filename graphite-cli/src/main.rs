@@ -316,8 +316,12 @@ fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
         .with_context(|| format!("Failed to parse config: {}", config_path.display()))?;
 
     // Create output directory
-    std::fs::create_dir_all(&config.output_dir)
-        .with_context(|| format!("Failed to create output dir: {}", config.output_dir.display()))?;
+    std::fs::create_dir_all(&config.output_dir).with_context(|| {
+        format!(
+            "Failed to create output dir: {}",
+            config.output_dir.display()
+        )
+    })?;
 
     // Generate mod.rs for the generated module
     let mut mod_contents = String::from("//! Generated code — do not edit.\n\n");
@@ -326,8 +330,9 @@ fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
     if let Some(ref schema_path) = config.schema {
         println!("  Generating entities from schema...");
 
-        let code = codegen::generate_schema_entities(schema_path)
-            .with_context(|| format!("Failed to generate entities from {}", schema_path.display()))?;
+        let code = codegen::generate_schema_entities(schema_path).with_context(|| {
+            format!("Failed to generate entities from {}", schema_path.display())
+        })?;
 
         let output_path = config.output_dir.join("schema.rs");
         std::fs::write(&output_path, &code)
@@ -381,7 +386,11 @@ fn cmd_build(release: bool) -> Result<()> {
         cmd.arg("--release");
     }
 
-    println!("  Running: cargo build --target {} {}", TARGET, if release { "--release" } else { "" });
+    println!(
+        "  Running: cargo build --target {} {}",
+        TARGET,
+        if release { "--release" } else { "" }
+    );
 
     let status = cmd.status().context("Failed to run cargo build")?;
     if !status.success() {
@@ -393,8 +402,7 @@ fn cmd_build(release: bool) -> Result<()> {
     let target_dir = PathBuf::from("target").join(TARGET).join(profile);
 
     // Get crate name from Cargo.toml
-    let cargo_toml = std::fs::read_to_string("Cargo.toml")
-        .context("Failed to read Cargo.toml")?;
+    let cargo_toml = std::fs::read_to_string("Cargo.toml").context("Failed to read Cargo.toml")?;
     let crate_name = cargo_toml
         .lines()
         .find(|l| l.starts_with("name"))
@@ -409,7 +417,11 @@ fn cmd_build(release: bool) -> Result<()> {
     }
 
     let size = std::fs::metadata(&wasm_file)?.len();
-    println!("  Built: {} ({:.1} KB)", wasm_file.display(), size as f64 / 1024.0);
+    println!(
+        "  Built: {} ({:.1} KB)",
+        wasm_file.display(),
+        size as f64 / 1024.0
+    );
 
     // Create build directory and copy
     let build_dir = PathBuf::from("build");

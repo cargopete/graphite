@@ -28,9 +28,7 @@ pub fn deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> 
         serde_yaml::from_str(&manifest_str).context("Failed to parse subgraph.yaml")?;
 
     // Collect all file paths from the manifest
-    let manifest_dir = manifest_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let files = collect_file_refs(&manifest)?;
     println!("  Found {} file references", files.len());
 
@@ -38,9 +36,13 @@ pub fn deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> 
     let mut path_to_hash: Vec<(String, String)> = Vec::new();
     for file_ref in &files {
         let resolved = manifest_dir.join(file_ref);
-        let resolved = resolved
-            .canonicalize()
-            .with_context(|| format!("File not found: {} (resolved from {})", resolved.display(), file_ref))?;
+        let resolved = resolved.canonicalize().with_context(|| {
+            format!(
+                "File not found: {} (resolved from {})",
+                resolved.display(),
+                file_ref
+            )
+        })?;
 
         let hash = upload_to_ipfs(ipfs_url, &resolved)
             .with_context(|| format!("Failed to upload {} to IPFS", resolved.display()))?;
@@ -58,7 +60,11 @@ pub fn deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> 
 
     // Create subgraph name (idempotent — ignores "already exists" errors)
     println!("  Creating subgraph name: {}", name);
-    match jsonrpc_call(node_url, "subgraph_create", &serde_json::json!({"name": name})) {
+    match jsonrpc_call(
+        node_url,
+        "subgraph_create",
+        &serde_json::json!({"name": name}),
+    ) {
         Ok(result) => println!("  Created: {}", result),
         Err(e) => {
             let msg = e.to_string();
@@ -85,10 +91,7 @@ pub fn deploy(node: Option<&str>, ipfs: Option<&str>, name: &str) -> Result<()> 
     println!("  Name: {}", name);
     println!("  IPFS hash: {}", manifest_hash);
     let query_base = node_url.replace(":8020", ":8000");
-    println!(
-        "  Query URL: {}/subgraphs/name/{}",
-        query_base, name
-    );
+    println!("  Query URL: {}/subgraphs/name/{}", query_base, name);
 
     Ok(())
 }
@@ -170,8 +173,7 @@ fn rewrite_manifest(manifest: &str, replacements: &[(String, String)]) -> String
 
 /// Upload a file to IPFS, returns the hash.
 fn upload_to_ipfs(ipfs_url: &str, path: &Path) -> Result<String> {
-    let data = std::fs::read(path)
-        .with_context(|| format!("Failed to read {}", path.display()))?;
+    let data = std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
     let filename = path
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
@@ -243,9 +245,7 @@ fn jsonrpc_call(
         .context("Failed to parse JSON-RPC response")?;
 
     if let Some(error) = response.get("error") {
-        let msg = error["message"]
-            .as_str()
-            .unwrap_or("unknown error");
+        let msg = error["message"].as_str().unwrap_or("unknown error");
         anyhow::bail!("{}: {}", method, msg);
     }
 

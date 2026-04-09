@@ -55,10 +55,18 @@ impl Token {
     pub fn save(&self) {
         let mut b = graph_as_runtime::entity::EntityBuilder::new();
         b.set_string("id", &self.id);
-        if let Some(ref v) = self.symbol { b.set_string("symbol", v); }
-        if let Some(ref v) = self.name { b.set_string("name", v); }
-        if let Some(v) = self.decimals { b.set_i32("decimals", v); }
-        if let Some(ref v) = self.total_supply { b.set_bigint("totalSupply", v); }
+        if let Some(ref v) = self.symbol {
+            b.set_string("symbol", v);
+        }
+        if let Some(ref v) = self.name {
+            b.set_string("name", v);
+        }
+        if let Some(v) = self.decimals {
+            b.set_i32("decimals", v);
+        }
+        if let Some(ref v) = self.total_supply {
+            b.set_bigint("totalSupply", v);
+        }
         let entity_ptr = graph_as_runtime::as_types::new_asc_string("Token");
         let id_ptr = graph_as_runtime::as_types::new_asc_string(&self.id);
         unsafe {
@@ -71,10 +79,18 @@ impl Token {
         use graph_as_runtime::native_store::{FieldValue, with_store_mut};
         let mut fields = std::collections::HashMap::new();
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
-        if let Some(ref v) = self.symbol { fields.insert("symbol".to_string(), FieldValue::String(v.clone())); }
-        if let Some(ref v) = self.name { fields.insert("name".to_string(), FieldValue::String(v.clone())); }
-        if let Some(v) = self.decimals { fields.insert("decimals".to_string(), FieldValue::Int(v)); }
-        if let Some(ref v) = self.total_supply { fields.insert("totalSupply".to_string(), FieldValue::BigInt(v.clone())); }
+        if let Some(ref v) = self.symbol {
+            fields.insert("symbol".to_string(), FieldValue::String(v.clone()));
+        }
+        if let Some(ref v) = self.name {
+            fields.insert("name".to_string(), FieldValue::String(v.clone()));
+        }
+        if let Some(v) = self.decimals {
+            fields.insert("decimals".to_string(), FieldValue::Int(v));
+        }
+        if let Some(ref v) = self.total_supply {
+            fields.insert("totalSupply".to_string(), FieldValue::BigInt(v.clone()));
+        }
         with_store_mut(|s| s.set_entity("Token", &self.id, fields));
     }
 }
@@ -156,9 +172,15 @@ impl TokenBalance {
     pub fn save(&self) {
         let mut b = graph_as_runtime::entity::EntityBuilder::new();
         b.set_string("id", &self.id);
-        if let Some(ref v) = self.account { b.set_string("account", v); }
-        if let Some(ref v) = self.token { b.set_string("token", v); }
-        if let Some(ref v) = self.balance { b.set_bigint("balance", v); }
+        if let Some(ref v) = self.account {
+            b.set_string("account", v);
+        }
+        if let Some(ref v) = self.token {
+            b.set_string("token", v);
+        }
+        if let Some(ref v) = self.balance {
+            b.set_bigint("balance", v);
+        }
         let entity_ptr = graph_as_runtime::as_types::new_asc_string("TokenBalance");
         let id_ptr = graph_as_runtime::as_types::new_asc_string(&self.id);
         unsafe {
@@ -171,9 +193,15 @@ impl TokenBalance {
         use graph_as_runtime::native_store::{FieldValue, with_store_mut};
         let mut fields = std::collections::HashMap::new();
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
-        if let Some(ref v) = self.account { fields.insert("account".to_string(), FieldValue::String(v.clone())); }
-        if let Some(ref v) = self.token { fields.insert("token".to_string(), FieldValue::String(v.clone())); }
-        if let Some(ref v) = self.balance { fields.insert("balance".to_string(), FieldValue::BigInt(v.clone())); }
+        if let Some(ref v) = self.account {
+            fields.insert("account".to_string(), FieldValue::String(v.clone()));
+        }
+        if let Some(ref v) = self.token {
+            fields.insert("token".to_string(), FieldValue::String(v.clone()));
+        }
+        if let Some(ref v) = self.balance {
+            fields.insert("balance".to_string(), FieldValue::BigInt(v.clone()));
+        }
         with_store_mut(|s| s.set_entity("TokenBalance", &self.id, fields));
     }
 }
@@ -243,13 +271,27 @@ impl Transfer {
     pub fn save(&self) {
         let mut b = graph_as_runtime::entity::EntityBuilder::new();
         b.set_string("id", &self.id);
-        if let Some(ref v) = self.token { b.set_string("token", v); }
-        if let Some(ref v) = self.from { b.set_bytes("from", v); }
-        if let Some(ref v) = self.to { b.set_bytes("to", v); }
-        if let Some(ref v) = self.value { b.set_bigint("value", v); }
-        if let Some(ref v) = self.block_number { b.set_bigint("blockNumber", v); }
-        if let Some(ref v) = self.timestamp { b.set_bigint("timestamp", v); }
-        if let Some(ref v) = self.transaction_hash { b.set_bytes("transactionHash", v); }
+        if let Some(ref v) = self.token {
+            b.set_string("token", v);
+        }
+        if let Some(ref v) = self.from {
+            b.set_bytes("from", v);
+        }
+        if let Some(ref v) = self.to {
+            b.set_bytes("to", v);
+        }
+        if let Some(ref v) = self.value {
+            b.set_bigint("value", v);
+        }
+        if let Some(ref v) = self.block_number {
+            b.set_bigint("blockNumber", v);
+        }
+        if let Some(ref v) = self.timestamp {
+            b.set_bigint("timestamp", v);
+        }
+        if let Some(ref v) = self.transaction_hash {
+            b.set_bytes("transactionHash", v);
+        }
         let entity_ptr = graph_as_runtime::as_types::new_asc_string("Transfer");
         let id_ptr = graph_as_runtime::as_types::new_asc_string(&self.id);
         unsafe {
@@ -262,13 +304,27 @@ impl Transfer {
         use graph_as_runtime::native_store::{FieldValue, with_store_mut};
         let mut fields = std::collections::HashMap::new();
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
-        if let Some(ref v) = self.token { fields.insert("token".to_string(), FieldValue::String(v.clone())); }
-        if let Some(ref v) = self.from { fields.insert("from".to_string(), FieldValue::Bytes(v.clone())); }
-        if let Some(ref v) = self.to { fields.insert("to".to_string(), FieldValue::Bytes(v.clone())); }
-        if let Some(ref v) = self.value { fields.insert("value".to_string(), FieldValue::BigInt(v.clone())); }
-        if let Some(ref v) = self.block_number { fields.insert("blockNumber".to_string(), FieldValue::BigInt(v.clone())); }
-        if let Some(ref v) = self.timestamp { fields.insert("timestamp".to_string(), FieldValue::BigInt(v.clone())); }
-        if let Some(ref v) = self.transaction_hash { fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone())); }
+        if let Some(ref v) = self.token {
+            fields.insert("token".to_string(), FieldValue::String(v.clone()));
+        }
+        if let Some(ref v) = self.from {
+            fields.insert("from".to_string(), FieldValue::Bytes(v.clone()));
+        }
+        if let Some(ref v) = self.to {
+            fields.insert("to".to_string(), FieldValue::Bytes(v.clone()));
+        }
+        if let Some(ref v) = self.value {
+            fields.insert("value".to_string(), FieldValue::BigInt(v.clone()));
+        }
+        if let Some(ref v) = self.block_number {
+            fields.insert("blockNumber".to_string(), FieldValue::BigInt(v.clone()));
+        }
+        if let Some(ref v) = self.timestamp {
+            fields.insert("timestamp".to_string(), FieldValue::BigInt(v.clone()));
+        }
+        if let Some(ref v) = self.transaction_hash {
+            fields.insert("transactionHash".to_string(), FieldValue::Bytes(v.clone()));
+        }
         with_store_mut(|s| s.set_entity("Transfer", &self.id, fields));
     }
 }

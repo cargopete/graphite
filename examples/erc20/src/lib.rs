@@ -64,7 +64,9 @@ pub extern "C" fn handle_transfer(event_ptr: i32) {
 
     let raw = unsafe { read_ethereum_event(event_ptr as u32) };
 
-    unsafe { log_log(LOG_INFO, new_asc_string("erc20: handle_transfer called")); }
+    unsafe {
+        log_log(LOG_INFO, new_asc_string("erc20: handle_transfer called"));
+    }
 
     handle_transfer_impl(&raw);
 
@@ -118,7 +120,10 @@ mod tests {
         let tx_hex = "ab".repeat(32);
         let id = format!("{}-00", tx_hex);
 
-        assert!(mock::has_entity("Transfer", &id), "Transfer entity should exist");
+        assert!(
+            mock::has_entity("Transfer", &id),
+            "Transfer entity should exist"
+        );
         mock::assert_entity("Transfer", &id)
             .field_bytes("from", &[0xaa; 20])
             .field_bytes("to", &[0xbb; 20])
