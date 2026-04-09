@@ -4,6 +4,7 @@
 //! builder-pattern setters and a `save()` method backed by graph-as-runtime.
 
 use anyhow::{Context, Result};
+use graphql_parser::query::Value as GqlValue;
 use graphql_parser::schema::{Definition, Document, Field, Type, TypeDefinition};
 use heck::ToSnakeCase;
 use std::fmt::Write;
@@ -13,8 +14,11 @@ use std::path::Path;
 pub fn generate_schema_entities(schema_path: &Path) -> Result<String> {
     let schema_str = std::fs::read_to_string(schema_path)
         .with_context(|| format!("Failed to read schema: {}", schema_path.display()))?;
+    generate_schema_entities_from_str(&schema_str)
+}
 
-    let document: Document<'_, String> = graphql_parser::parse_schema(&schema_str)
+fn generate_schema_entities_from_str(schema_str: &str) -> Result<String> {
+    let document: Document<'_, String> = graphql_parser::parse_schema(schema_str)
         .map_err(|e| anyhow::anyhow!("Failed to parse schema: {}", e))?;
 
     let mut output = String::new();
@@ -51,12 +55,18 @@ pub fn generate_schema_entities(schema_path: &Path) -> Result<String> {
                 }
 
                 // Only process @entity types
-                let is_entity = obj.directives.iter().any(|d| d.name == "entity");
-                if !is_entity {
+                let entity_directive = obj.directives.iter().find(|d| d.name == "entity");
+                if entity_directive.is_none() {
                     continue;
                 }
+                let is_immutable = entity_directive
+                    .unwrap()
+                    .arguments
+                    .iter()
+                    .any(|(k, v)| k == "immutable" && matches!(v, GqlValue::Boolean(true)));
 
-                let entity_code = generate_entity_struct(&obj.name, &obj.fields)?;
+                let entity_code =
+                    generate_entity_struct(&obj.name, &obj.fields, is_immutable)?;
                 output.push_str(&entity_code);
                 output.push('\n');
             }
@@ -67,7 +77,11 @@ pub fn generate_schema_entities(schema_path: &Path) -> Result<String> {
 }
 
 /// Generate a Rust struct for a GraphQL entity type with raw types and EntityBuilder.
-fn generate_entity_struct<'a>(name: &str, fields: &'a [Field<'a, String>]) -> Result<String> {
+fn generate_entity_struct<'a>(
+    name: &str,
+    fields: &'a [Field<'a, String>],
+    immutable: bool,
+) -> Result<String> {
     let mut output = String::new();
 
     // Validate id field exists
@@ -81,6 +95,9 @@ fn generate_entity_struct<'a>(name: &str, fields: &'a [Field<'a, String>]) -> Re
         "/// Generated from `{}` entity in schema.graphql.",
         name
     )?;
+    if immutable {
+        writeln!(output, "/// This entity is immutable (`@entity(immutable: true)`). Use `save()` once at creation; updates and `remove()` are not supported.")?;
+    }
     writeln!(output, "pub struct {} {{", name)?;
 
     // Emit fields
@@ -275,6 +292,43 @@ fn generate_entity_struct<'a>(name: &str, fields: &'a [Field<'a, String>]) -> Re
     }
     writeln!(output, "        }})")?;
     writeln!(output, "    }}")?;
+
+    if !immutable {
+        writeln!(output)?;
+        // remove() — WASM
+        writeln!(output, "    #[cfg(target_arch = \"wasm32\")]")?;
+        writeln!(output, "    pub fn remove(id: &str) {{")?;
+        writeln!(
+            output,
+            "        let entity_ptr = graph_as_runtime::as_types::new_asc_string({:?});",
+            name
+        )?;
+        writeln!(
+            output,
+            "        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);"
+        )?;
+        writeln!(output, "        unsafe {{")?;
+        writeln!(
+            output,
+            "            graph_as_runtime::ffi::store_remove(entity_ptr, id_ptr);"
+        )?;
+        writeln!(output, "        }}")?;
+        writeln!(output, "    }}")?;
+        writeln!(output)?;
+        // remove() — native
+        writeln!(output, "    #[cfg(not(target_arch = \"wasm32\"))]")?;
+        writeln!(output, "    pub fn remove(id: &str) {{")?;
+        writeln!(
+            output,
+            "        use graph_as_runtime::native_store::STORE;"
+        )?;
+        writeln!(
+            output,
+            "        STORE.with(|s| s.borrow_mut().remove_entity({:?}, id));",
+            name
+        )?;
+        writeln!(output, "    }}")?;
+    }
 
     writeln!(output, "}}")?;
 
@@ -511,5 +565,40 @@ mod tests {
         assert_eq!(scalar_to_rust("BigInt"), "Vec<u8>");
         assert_eq!(scalar_to_rust("Bytes"), "Vec<u8>");
         assert_eq!(scalar_to_rust("Boolean"), "bool");
+    }
+
+    #[test]
+    fn mutable_entity_has_remove() {
+        let schema = r#"type Transfer @entity { id: ID! from: Bytes! }"#;
+        let doc: Document<'_, String> = graphql_parser::parse_schema(schema).unwrap();
+        if let Definition::TypeDefinition(TypeDefinition::Object(obj)) = &doc.definitions[0] {
+            let code = generate_entity_struct(&obj.name, &obj.fields, false).unwrap();
+            assert!(code.contains("pub fn remove(id: &str)"), "mutable entity must have remove()");
+        }
+    }
+
+    #[test]
+    fn immutable_entity_no_remove() {
+        let schema = r#"type Price @entity(immutable: true) { id: ID! value: BigInt! }"#;
+        let doc: Document<'_, String> = graphql_parser::parse_schema(schema).unwrap();
+        if let Definition::TypeDefinition(TypeDefinition::Object(obj)) = &doc.definitions[0] {
+            let code = generate_entity_struct(&obj.name, &obj.fields, true).unwrap();
+            assert!(!code.contains("pub fn remove(id: &str)"), "immutable entity must not have remove()");
+            assert!(code.contains("immutable"), "immutable doc comment missing");
+        }
+    }
+
+    #[test]
+    fn immutable_flag_detected_from_schema() {
+        let schema = r#"type Price @entity(immutable: true) { id: ID! value: BigInt! }"#;
+        let result = generate_schema_entities_from_str(schema).unwrap();
+        assert!(!result.contains("pub fn remove(id: &str)"));
+    }
+
+    #[test]
+    fn mutable_flag_detected_from_schema() {
+        let schema = r#"type Transfer @entity { id: ID! from: Bytes! }"#;
+        let result = generate_schema_entities_from_str(schema).unwrap();
+        assert!(result.contains("pub fn remove(id: &str)"));
     }
 }

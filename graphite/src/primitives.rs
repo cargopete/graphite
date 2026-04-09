@@ -6,7 +6,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
-use core::ops::{Add, Div, Mul, Sub};
+use core::ops::{Add, Div, Mul, Rem, Sub};
 use num_traits::Signed;
 
 // Re-export alloy primitives
@@ -238,6 +238,20 @@ impl Div for &BigInt {
     }
 }
 
+impl Rem for BigInt {
+    type Output = Self;
+    fn rem(self, rhs: Self) -> Self::Output {
+        Self(self.0 % rhs.0)
+    }
+}
+
+impl Rem for &BigInt {
+    type Output = BigInt;
+    fn rem(self, rhs: Self) -> Self::Output {
+        BigInt(&self.0 % &rhs.0)
+    }
+}
+
 /// Arbitrary precision decimal number.
 ///
 /// For financial calculations where precision matters.
@@ -249,12 +263,40 @@ pub struct BigDecimal {
     scale: i64,
 }
 
+/// Precision used for BigDecimal division results (decimal places).
+const BIGDEC_DIV_PRECISION: u32 = 18;
+
+/// Align two BigDecimal values to the same scale, returning raw inner values.
+fn align_bigdec(
+    a: &BigDecimal,
+    b: &BigDecimal,
+) -> (num_bigint::BigInt, num_bigint::BigInt, i64) {
+    let av = a.value.0.clone();
+    let bv = b.value.0.clone();
+    if a.scale == b.scale {
+        return (av, bv, a.scale);
+    }
+    if a.scale > b.scale {
+        let factor = num_bigint::BigInt::from(10i64).pow((a.scale - b.scale) as u32);
+        (av, bv * factor, a.scale)
+    } else {
+        let factor = num_bigint::BigInt::from(10i64).pow((b.scale - a.scale) as u32);
+        (av * factor, bv, b.scale)
+    }
+}
+
 impl BigDecimal {
     pub fn zero() -> Self {
         Self {
             value: BigInt::zero(),
             scale: 0,
         }
+    }
+
+    /// Construct from a BigInt mantissa and an explicit decimal scale.
+    /// E.g. `from_bigint(BigInt::from(12345), 3)` represents `12.345`.
+    pub fn from_bigint(value: BigInt, scale: i64) -> Self {
+        Self { value, scale }
     }
 
     pub fn from_str(s: &str) -> Result<Self, BigDecimalError> {
@@ -305,6 +347,85 @@ pub enum BigDecimalError {
     InvalidFormat,
 }
 
+impl Add for BigDecimal {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        let (av, bv, scale) = align_bigdec(&self, &rhs);
+        Self { value: BigInt(av + bv), scale }
+    }
+}
+
+impl Sub for BigDecimal {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        let (av, bv, scale) = align_bigdec(&self, &rhs);
+        Self { value: BigInt(av - bv), scale }
+    }
+}
+
+impl Mul for BigDecimal {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self {
+            value: BigInt(self.value.0 * rhs.value.0),
+            scale: self.scale + rhs.scale,
+        }
+    }
+}
+
+impl Div for BigDecimal {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        // Multiply numerator by 10^PRECISION to preserve decimal places.
+        let precision_factor =
+            num_bigint::BigInt::from(10i64).pow(BIGDEC_DIV_PRECISION);
+        let scaled = self.value.0 * precision_factor;
+        Self {
+            value: BigInt(scaled / rhs.value.0),
+            scale: self.scale - rhs.scale + BIGDEC_DIV_PRECISION as i64,
+        }
+    }
+}
+
+impl Add for &BigDecimal {
+    type Output = BigDecimal;
+    fn add(self, rhs: Self) -> Self::Output {
+        let (av, bv, scale) = align_bigdec(self, rhs);
+        BigDecimal { value: BigInt(av + bv), scale }
+    }
+}
+
+impl Sub for &BigDecimal {
+    type Output = BigDecimal;
+    fn sub(self, rhs: Self) -> Self::Output {
+        let (av, bv, scale) = align_bigdec(self, rhs);
+        BigDecimal { value: BigInt(av - bv), scale }
+    }
+}
+
+impl Mul for &BigDecimal {
+    type Output = BigDecimal;
+    fn mul(self, rhs: Self) -> Self::Output {
+        BigDecimal {
+            value: BigInt(self.value.0.clone() * rhs.value.0.clone()),
+            scale: self.scale + rhs.scale,
+        }
+    }
+}
+
+impl Div for &BigDecimal {
+    type Output = BigDecimal;
+    fn div(self, rhs: Self) -> Self::Output {
+        let precision_factor =
+            num_bigint::BigInt::from(10i64).pow(BIGDEC_DIV_PRECISION);
+        let scaled = self.value.0.clone() * precision_factor;
+        BigDecimal {
+            value: BigInt(scaled / rhs.value.0.clone()),
+            scale: self.scale - rhs.scale + BIGDEC_DIV_PRECISION as i64,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,7 +438,46 @@ mod tests {
         assert_eq!((a.clone() + b.clone()).0, num_bigint::BigInt::from(142));
         assert_eq!((a.clone() - b.clone()).0, num_bigint::BigInt::from(58));
         assert_eq!((a.clone() * b.clone()).0, num_bigint::BigInt::from(4200));
-        assert_eq!((a / b).0, num_bigint::BigInt::from(2));
+        assert_eq!((a.clone() / b.clone()).0, num_bigint::BigInt::from(2));
+        assert_eq!((a % b).0, num_bigint::BigInt::from(16));
+    }
+
+    #[test]
+    fn bigdecimal_add_same_scale() {
+        let a = BigDecimal::from_str("1.5").unwrap();
+        let b = BigDecimal::from_str("2.5").unwrap();
+        assert_eq!((a + b).to_string(), "4.0");
+    }
+
+    #[test]
+    fn bigdecimal_add_different_scale() {
+        let a = BigDecimal::from_str("1.5").unwrap();   // scale=1
+        let b = BigDecimal::from_str("0.25").unwrap();  // scale=2
+        assert_eq!((a + b).to_string(), "1.75");
+    }
+
+    #[test]
+    fn bigdecimal_sub() {
+        let a = BigDecimal::from_str("10.0").unwrap();
+        let b = BigDecimal::from_str("3.5").unwrap();
+        assert_eq!((a - b).to_string(), "6.5");
+    }
+
+    #[test]
+    fn bigdecimal_mul() {
+        let a = BigDecimal::from_str("2.5").unwrap();  // 25 * 10^-1
+        let b = BigDecimal::from_str("4.0").unwrap();  // 40 * 10^-1
+        // 25*40 = 1000, scale = 2 → 10.00
+        assert_eq!((a * b).to_string(), "10.00");
+    }
+
+    #[test]
+    fn bigdecimal_div_precision() {
+        let a = BigDecimal::from_str("1.0").unwrap();
+        let b = BigDecimal::from_str("3.0").unwrap();
+        let result = a / b;
+        // Should have 18 decimal places of precision
+        assert!(result.to_string().starts_with("0.333333333"));
     }
 
     #[test]
