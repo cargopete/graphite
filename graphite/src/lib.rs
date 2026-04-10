@@ -57,6 +57,9 @@ pub mod prelude {
 
 // Re-export key types at crate root
 pub use primitives::{Address, AddressExt, B256, BigDecimal, BigInt, Bytes, U256};
+/// Transaction receipt exposed to event handlers. Present only when the manifest
+/// sets `receipt: true` on the data source mapping.
+pub use graph_as_runtime::ethereum::EthereumTransactionReceipt as TransactionReceipt;
 
 /// Context passed to every event handler alongside the decoded event.
 ///
@@ -73,6 +76,8 @@ pub struct EventContext {
     pub log_index: alloc::vec::Vec<u8>,
     /// Contract address that emitted the event (20 bytes).
     pub address: [u8; 20],
+    /// Transaction receipt, if the manifest enables `receipt: true`.
+    pub receipt: Option<crate::TransactionReceipt>,
 }
 
 /// Context passed to every call handler alongside the decoded call inputs.

@@ -183,6 +183,34 @@ pub struct EventParam {
     pub value: EthereumValue,
 }
 
+/// Transaction receipt data — only present when the subgraph manifest enables
+/// receipt access via `receipt: true` on the data source mapping.
+///
+/// # Memory layout (AS `EthereumTransactionReceipt` payload)
+///
+/// ```text
+///   offset  0  transactionHash    -> Bytes (32)
+///   offset  4  transactionIndex   -> BigInt
+///   offset  8  blockHash          -> Bytes (32)
+///   offset 12  blockNumber        -> BigInt
+///   offset 16  cumulativeGasUsed  -> BigInt
+///   offset 20  gasUsed            -> BigInt
+///   offset 24  contractAddress    -> Address (nullable)
+///   offset 28  logs               -> Array<Log>
+///   offset 32  status             -> BigInt (nullable, EIP-658)
+///   offset 36  root               -> Bytes (nullable)
+///   offset 40  logsBloom          -> Bytes
+/// ```
+pub struct EthereumTransactionReceipt {
+    /// EIP-658 transaction status. `true` = success, `false` = reverted.
+    /// `None` for pre-EIP-658 blocks (mainnet before block ~4.37 M).
+    pub status: Option<bool>,
+    /// Gas used by this transaction (BigInt bytes, little-endian).
+    pub gas_used: Vec<u8>,
+    /// Number of logs emitted by this transaction.
+    pub log_count: u32,
+}
+
 /// Everything a handler needs from an EthereumEvent, in plain Rust types.
 pub struct RawEthereumEvent {
     /// The contract address that emitted the event (20 bytes).
@@ -197,6 +225,8 @@ pub struct RawEthereumEvent {
     pub tx_hash: [u8; 32],
     /// Decoded event parameters in declaration order.
     pub params: Vec<EventParam>,
+    /// Transaction receipt, if the manifest enables `receipt: true`.
+    pub receipt: Option<EthereumTransactionReceipt>,
 }
 
 /// Everything a call handler needs from an `ethereum.Call`, in plain Rust types.
@@ -372,6 +402,38 @@ unsafe fn read_ethereum_value_array(arr_ptr: u32) -> Vec<EthereumValue> {
             });
         }
         values
+    }
+}
+
+/// Read an `EthereumTransactionReceipt` from AS memory.
+///
+/// `EthereumTransactionReceipt` payload offsets (u32 AscPtrs):
+///   offset 20  gasUsed  -> BigInt
+///   offset 28  logs     -> Array<Log>  (we only read `.length`)
+///   offset 32  status   -> BigInt (nullable; null = pre-EIP-658)
+unsafe fn read_receipt(ptr: u32) -> EthereumTransactionReceipt {
+    unsafe {
+        // gasUsed at offset 20
+        let gas_ptr = read_u32_at(ptr, 20);
+        let gas_used = if gas_ptr != 0 { read_uint8array(gas_ptr) } else { vec![0u8] };
+
+        // logs array at offset 28 — we only need the element count
+        let logs_ptr = read_u32_at(ptr, 28);
+        let log_count = if logs_ptr != 0 { read_u32_at(logs_ptr, 12) } else { 0 };
+
+        // status at offset 32 — nullable BigInt
+        // null pointer → pre-EIP-658 block → None
+        // BigInt bytes: 0 = reverted, anything else = success
+        let status_ptr = read_u32_at(ptr, 32);
+        let status = if status_ptr == 0 {
+            None
+        } else {
+            let status_bytes = read_uint8array(status_ptr);
+            let is_success = status_bytes.iter().any(|&b| b != 0);
+            Some(is_success)
+        };
+
+        EthereumTransactionReceipt { status, gas_used, log_count }
     }
 }
 
@@ -652,6 +714,7 @@ pub unsafe fn read_ethereum_event(ptr: u32) -> RawEthereumEvent {
         let block_ptr = read_u32_at(ptr, 16);
         let tx_ptr = read_u32_at(ptr, 20);
         let params_ptr = read_u32_at(ptr, 24);
+        let receipt_ptr = read_u32_at(ptr, 28);
 
         // address: Uint8Array (20 bytes)
         let address = if address_ptr != 0 {
@@ -710,6 +773,13 @@ pub unsafe fn read_ethereum_event(ptr: u32) -> RawEthereumEvent {
             vec![]
         };
 
+        // receipt: nullable pointer to EthereumTransactionReceipt
+        let receipt = if receipt_ptr != 0 {
+            Some(read_receipt(receipt_ptr))
+        } else {
+            None
+        };
+
         RawEthereumEvent {
             address,
             log_index,
@@ -717,6 +787,7 @@ pub unsafe fn read_ethereum_event(ptr: u32) -> RawEthereumEvent {
             block_timestamp,
             tx_hash,
             params,
+            receipt,
         }
     }
 }

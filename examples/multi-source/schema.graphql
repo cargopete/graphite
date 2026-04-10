@@ -1,0 +1,23 @@
+# Multi-source subgraph: tracks ERC20 transfers and ERC721 transfers in one manifest.
+
+type Erc20Transfer @entity {
+  "tx_hash-log_index"
+  id: ID!
+  from: Bytes!
+  to: Bytes!
+  value: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type Erc721Transfer @entity {
+  "tx_hash-log_index"
+  id: ID!
+  from: Bytes!
+  to: Bytes!
+  tokenId: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  transactionHash: Bytes!
+}

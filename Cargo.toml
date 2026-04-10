@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["graphite", "graphite-macros", "graphite-cli", "graph-as-runtime", "examples/erc20", "examples/erc721", "examples/milestone"]
+members = ["graphite", "graphite-macros", "graphite-cli", "graph-as-runtime", "examples/erc20", "examples/erc721", "examples/milestone", "examples/multi-source"]
 
 [workspace.package]
 version = "1.0.0"

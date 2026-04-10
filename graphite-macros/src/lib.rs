@@ -235,6 +235,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                     tx_hash:         raw.tx_hash,
                     log_index:       raw.log_index.clone(),
                     address:         raw.address,
+                    receipt:         raw.receipt,
                 };
                 #impl_name(&#param_name, &ctx);
                 0
@@ -259,6 +260,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                     tx_hash:         raw.tx_hash,
                     log_index:       raw.log_index.clone(),
                     address:         raw.address,
+                    receipt:         raw.receipt,
                 };
                 #impl_name(&#param_name, &ctx);
             }

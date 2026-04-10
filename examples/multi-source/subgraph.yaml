@@ -1,0 +1,46 @@
+specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: ERC20
+    network: mainnet
+    source:
+      # USDC on mainnet
+      address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+      abi: ERC20
+      startBlock: 6082465
+    mapping:
+      kind: wasm/assemblyscript
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Erc20Transfer
+      abis:
+        - name: ERC20
+          file: ./abis/ERC20.json
+      eventHandlers:
+        - event: Transfer(indexed address,indexed address,uint256)
+          handler: handle_erc20_transfer
+      file: ../../target/wasm32-unknown-unknown/release/multi_source_subgraph.wasm
+  - kind: ethereum
+    name: ERC721
+    network: mainnet
+    source:
+      # CryptoPunks on mainnet
+      address: "0xb47e3cd837dDF8e4c57f05d70Ab865de6e193bbb"
+      abi: ERC721
+      startBlock: 3914495
+    mapping:
+      kind: wasm/assemblyscript
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Erc721Transfer
+      abis:
+        - name: ERC721
+          file: ./abis/ERC721.json
+      eventHandlers:
+        - event: Transfer(indexed address,indexed address,indexed uint256)
+          handler: handle_erc721_transfer
+      file: ../../target/wasm32-unknown-unknown/release/multi_source_subgraph.wasm
