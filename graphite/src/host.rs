@@ -50,6 +50,13 @@ pub trait HostFunctions {
     /// Fetch content from IPFS by hash.
     fn ipfs_cat(&self, hash: &str) -> Result<Bytes, IpfsError>;
 
+    // ============ ENS Operations ============
+
+    /// Resolve an Ethereum address to its ENS name.
+    ///
+    /// Returns `None` if no ENS name is registered for the address.
+    fn ens_name_by_address(&self, address: Address) -> Option<String>;
+
     // ============ Data Source Operations ============
 
     /// Create a new data source from a template.

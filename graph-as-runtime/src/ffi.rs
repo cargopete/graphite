@@ -85,6 +85,14 @@ unsafe extern "C" {
     #[link_name = "json.fromBytes"]
     pub fn json_from_bytes(data: u32) -> u32;
 
+    // ========== ENS ==========
+
+    /// `ens.nameByAddress(address: u32) -> u32`
+    /// address: AscPtr<Address> (20-byte Uint8Array)
+    /// returns: AscPtr<AscString> (nullable — 0 if no name registered)
+    #[link_name = "ens.nameByAddress"]
+    pub fn ens_name_by_address(address: u32) -> u32;
+
     // ========== Data Source ==========
 
     /// `dataSource.create(name: u32, params: u32)`
@@ -163,6 +171,11 @@ pub unsafe fn ipfs_cat(_hash: u32) -> u32 {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn json_from_bytes(_data: u32) -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn ens_name_by_address(_address: u32) -> u32 {
     0
 }
 

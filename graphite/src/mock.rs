@@ -33,17 +33,20 @@ thread_local! {
     static ETH_CALLS_MADE: RefCell<Vec<([u8; 20], Vec<u8>)>> = RefCell::new(Vec::new());
     /// Thread-local IPFS content for AS-ABI-style handlers. See `set_ipfs_result`.
     static IPFS_CONTENT: RefCell<HashMap<String, Vec<u8>>> = RefCell::new(HashMap::new());
+    /// Thread-local ENS registry for AS-ABI-style handlers. See `set_ens_name`.
+    static ENS_NAMES: RefCell<HashMap<[u8; 20], String>> = RefCell::new(HashMap::new());
 }
 
 // ============================================================================
 // Top-level helpers
 // ============================================================================
 
-/// Reset the in-memory store, logs, call records, and IPFS content. Call at the top of every test.
+/// Reset the in-memory store, logs, call records, IPFS content, and ENS names. Call at the top of every test.
 pub fn reset() {
     native_store::reset();
     ETH_CALLS_MADE.with(|c| c.borrow_mut().clear());
     IPFS_CONTENT.with(|c| c.borrow_mut().clear());
+    ENS_NAMES.with(|c| c.borrow_mut().clear());
 }
 
 /// Register mock IPFS content for the given CID.
@@ -52,6 +55,19 @@ pub fn reset() {
 /// This stores the content in a thread-local so it works without a `MockHost` reference.
 pub fn set_ipfs_result(cid: impl Into<String>, content: impl Into<Vec<u8>>) {
     IPFS_CONTENT.with(|c| c.borrow_mut().insert(cid.into(), content.into()));
+}
+
+/// Register a mock ENS name for the given address.
+///
+/// When `ens::name_by_address` is called with this address (in an AS-ABI-style handler)
+/// it will return `name`. Thread-local, cleared by `mock::reset()`.
+pub fn set_ens_name(address: [u8; 20], name: impl Into<String>) {
+    ENS_NAMES.with(|c| c.borrow_mut().insert(address, name.into()));
+}
+
+/// Look up a mocked ENS name — used by `graphite::ens::name_by_address` on native.
+pub(crate) fn get_ens_name(address: &[u8; 20]) -> Option<String> {
+    ENS_NAMES.with(|c| c.borrow().get(address).cloned())
 }
 
 /// Return the number of stored entities of the given type.
@@ -356,6 +372,7 @@ fn value_to_field_value(v: &Value) -> FieldValue {
         Value::BigInt(n) => FieldValue::BigInt(n.to_signed_bytes_le()),
         Value::Bool(b) => FieldValue::Bool(*b),
         Value::Int(n) => FieldValue::Int(*n),
+        Value::Int8(n) => FieldValue::Int8(*n),
         Value::Address(a) => FieldValue::Bytes(a.as_slice().to_vec()),
         Value::Null => FieldValue::Null,
         // Array and BigDecimal: store as Null for now (unsupported in testing).
@@ -384,6 +401,7 @@ impl HostFunctions for MockHost {
                         }
                         FieldValue::Bool(b) => Value::Bool(*b),
                         FieldValue::Int(n) => Value::Int(*n),
+                        FieldValue::Int8(n) => Value::Int8(*n),
                         FieldValue::Null => Value::Null,
                     };
                     e.set(k.clone(), v);
@@ -443,6 +461,11 @@ impl HostFunctions for MockHost {
                 .map(Bytes::from)
                 .ok_or_else(|| IpfsError::NotFound(hash.to_string()))
         })
+    }
+
+    fn ens_name_by_address(&self, address: Address) -> Option<String> {
+        let addr: [u8; 20] = address.as_slice().try_into().expect("address is 20 bytes");
+        get_ens_name(&addr)
     }
 
     fn data_source_create(&mut self, name: &str, params: &[String]) {

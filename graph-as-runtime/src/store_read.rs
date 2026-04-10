@@ -24,6 +24,7 @@ pub enum StoreValue {
     BigInt(Vec<u8>),
     Bool(bool),
     Int(i32),
+    Int8(i64),
     Null,
 }
 
@@ -57,6 +58,14 @@ impl StoreValue {
             Some(*n)
         } else {
             None
+        }
+    }
+
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            StoreValue::Int8(n) => Some(*n),
+            StoreValue::Int(n) => Some(*n as i64),
+            _ => None,
         }
     }
 }
@@ -94,6 +103,10 @@ pub unsafe fn read_asc_string(ptr: u32) -> String {
 ///
 /// # Safety
 /// `ptr` must be a valid AscPtr<Bytes> or AscPtr<BigInt>.
+pub unsafe fn read_asc_bytes(ptr: u32) -> Vec<u8> {
+    unsafe { read_bytes(ptr) }
+}
+
 unsafe fn read_bytes(ptr: u32) -> Vec<u8> {
     if ptr == 0 {
         return Vec::new();
@@ -150,6 +163,10 @@ unsafe fn read_value(ptr: u32) -> StoreValue {
             // BigInt
             let b = unsafe { read_bytes(payload as u32) };
             StoreValue::BigInt(b)
+        }
+        8 => {
+            // Int8 / Timestamp — payload is the i64 value directly
+            StoreValue::Int8(payload as i64)
         }
         _ => StoreValue::Null,
     }

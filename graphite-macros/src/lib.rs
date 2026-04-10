@@ -168,6 +168,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Detect the handler variant.
     let is_block_handler = !attr.is_empty() && attr_str == "block";
     let is_call_handler = !attr.is_empty() && attr_str == "call";
+    let is_file_handler = !attr.is_empty() && attr_str == "file";
 
     let input = parse_macro_input!(item as ItemFn);
     let fn_name = &input.sig.ident;
@@ -194,8 +195,20 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     let impl_name = syn::Ident::new(&format!("{}_impl", fn_name), fn_name.span());
 
     // Build the WASM entry point. Event handlers return void; block handlers return i32;
-    // call handlers return void (graph-node call handlers have void signature).
-    let wasm_entry = if is_call_handler {
+    // call handlers return void; file handlers return void.
+    let wasm_entry = if is_file_handler {
+        quote! {
+            #[cfg(target_arch = "wasm32")]
+            #[unsafe(no_mangle)]
+            pub extern "C" fn #fn_name(content_ptr: i32) {
+                let content = unsafe {
+                    graph_as_runtime::store_read::read_asc_bytes(content_ptr as u32)
+                };
+                let ctx = graphite::FileContext::new();
+                #impl_name(&content, &ctx);
+            }
+        }
+    } else if is_call_handler {
         quote! {
             #[cfg(target_arch = "wasm32")]
             #[unsafe(no_mangle)]
@@ -267,11 +280,20 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    // Call handlers use CallContext; event/block handlers use EventContext.
-    let ctx_type = if is_call_handler {
-        quote! { graphite::CallContext }
+    // Choose the context type and the parameter type for the _impl function.
+    let (ctx_type, param_override) = if is_file_handler {
+        (quote! { graphite::FileContext }, Some(quote! { alloc::vec::Vec<u8> }))
+    } else if is_call_handler {
+        (quote! { graphite::CallContext }, None)
     } else {
-        quote! { graphite::EventContext }
+        (quote! { graphite::EventContext }, None)
+    };
+
+    // For file handlers, the _impl param type is Vec<u8>; for others, use the declared type.
+    let impl_param_type = if let Some(ref override_ty) = param_override {
+        quote! { #override_ty }
+    } else {
+        quote! { #param_type }
     };
 
     let expanded = quote! {
@@ -280,7 +302,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         // In native builds the test harness calls this directly.
         // ---------------------------------------------------------------
         #fn_vis fn #impl_name(
-            #param_name: &#param_type,
+            #param_name: &#impl_param_type,
             ctx: &#ctx_type,
         ) #fn_body
 
@@ -290,7 +312,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         // ---------------------------------------------------------------
         #[cfg(not(target_arch = "wasm32"))]
         #fn_vis fn #fn_name(
-            #param_name: &#param_type,
+            #param_name: &#impl_param_type,
             ctx: &#ctx_type,
         ) {
             #impl_name(#param_name, ctx)

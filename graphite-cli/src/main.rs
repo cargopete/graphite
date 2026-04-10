@@ -198,6 +198,11 @@ schema = "schema.graphql"
         r#"specVersion: 0.0.5
 schema:
   file: ./schema.graphql
+# Grafting — uncomment to resume indexing from a previously deployed subgraph.
+# This avoids re-indexing from block 0 when you redeploy with schema changes.
+#graft:
+#  base: Qm...              # subgraph deployment ID (IPFS hash) to graft from
+#  block: 12345678          # block number to start from (must exist in base)
 dataSources:
   - kind: ethereum
     name: {name}

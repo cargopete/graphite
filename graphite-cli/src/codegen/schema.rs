@@ -45,12 +45,20 @@ fn generate_schema_entities_from_str(schema_str: &str) -> Result<String> {
     for definition in &document.definitions {
         if let Definition::TypeDefinition(type_def) = definition {
             if let TypeDefinition::Object(obj) = type_def {
-                // Skip built-in types
+                // Skip built-in and graph-node special types.
+                // _Schema_ holds @fulltext directives — graph-node handles it at deploy time.
                 if obj.name.starts_with("__")
+                    || obj.name == "_Schema_"
                     || obj.name == "Query"
                     || obj.name == "Mutation"
                     || obj.name == "Subscription"
                 {
+                    continue;
+                }
+
+                // Skip @aggregation types — graph-node auto-computes them from timeseries
+                // entities; handlers never write to them directly.
+                if obj.directives.iter().any(|d| d.name == "aggregation") {
                     continue;
                 }
 
@@ -65,6 +73,8 @@ fn generate_schema_entities_from_str(schema_str: &str) -> Result<String> {
                     .iter()
                     .any(|(k, v)| k == "immutable" && matches!(v, GqlValue::Boolean(true)));
 
+                // @entity(timeseries: true) entities have auto-managed IDs and timestamps;
+                // they are otherwise generated identically to regular entities.
                 let entity_code =
                     generate_entity_struct(&obj.name, &obj.fields, is_immutable)?;
                 output.push_str(&entity_code);
@@ -385,6 +395,7 @@ fn wasm_load_field_decode<'a>(
         ),
         "Boolean" => format!("get({:?}).and_then(|v| v.as_bool())", gql_name),
         "Int" => format!("get({:?}).and_then(|v| v.as_i32())", gql_name),
+        "Timestamp" | "Int8" => format!("get({:?}).and_then(|v| v.as_i64())", gql_name),
         _ => format!("get({:?}).and_then(|v| v.as_bytes())", gql_name),
     };
     if nullable {
@@ -425,6 +436,10 @@ fn native_load_field_decode<'a>(
         ),
         "Int" => format!(
             "fields.get({:?}).and_then(|v| if let FieldValue::Int(n) = v {{ Some(*n) }} else {{ None }})",
+            gql_name
+        ),
+        "Timestamp" | "Int8" => format!(
+            "fields.get({:?}).and_then(|v| if let FieldValue::Int8(n) = v {{ Some(*n) }} else {{ None }})",
             gql_name
         ),
         "BigInt" | "BigDecimal" => format!(
@@ -475,6 +490,10 @@ fn graphql_field_to_native_store_call<'a>(
                 "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Int(v)); }}\n",
                 field_name, gql_name
             ),
+            "Timestamp" | "Int8" => format!(
+                "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Int8(v)); }}\n",
+                field_name, gql_name
+            ),
             "BigInt" | "BigDecimal" => format!(
                 "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::BigInt(v.clone())); }}\n",
                 field_name, gql_name
@@ -500,6 +519,10 @@ fn graphql_field_to_native_store_call<'a>(
             ),
             "Int" => format!(
                 "        fields.insert({:?}.to_string(), FieldValue::Int(self.{}));\n",
+                gql_name, field_name
+            ),
+            "Timestamp" | "Int8" => format!(
+                "        fields.insert({:?}.to_string(), FieldValue::Int8(self.{}));\n",
                 gql_name, field_name
             ),
             "BigInt" | "BigDecimal" => format!(
@@ -551,6 +574,10 @@ fn graphql_field_to_builder_call<'a>(
                 "        if let Some(v) = self.{} {{ b.set_i32({:?}, v); }}\n",
                 field_name, gql_name
             ),
+            "Timestamp" | "Int8" => format!(
+                "        if let Some(v) = self.{} {{ b.set_i64({:?}, v); }}\n",
+                field_name, gql_name
+            ),
             "BigInt" | "BigDecimal" => format!(
                 "        if let Some(ref v) = self.{} {{ b.set_bigint({:?}, v); }}\n",
                 field_name, gql_name
@@ -572,6 +599,9 @@ fn graphql_field_to_builder_call<'a>(
             ),
             "Boolean" => format!("        b.set_bool({:?}, self.{});\n", gql_name, field_name),
             "Int" => format!("        b.set_i32({:?}, self.{});\n", gql_name, field_name),
+            "Timestamp" | "Int8" => {
+                format!("        b.set_i64({:?}, self.{});\n", gql_name, field_name)
+            }
             "BigInt" | "BigDecimal" => {
                 format!("        b.set_bigint({:?}, &self.{});\n", gql_name, field_name)
             }
@@ -627,6 +657,8 @@ fn scalar_to_rust(name: &str) -> String {
         "Boolean" => "bool".to_string(),
         "BigInt" | "BigDecimal" => "Vec<u8>".to_string(),
         "Bytes" | "Address" => "Vec<u8>".to_string(),
+        // Timeseries scalars — graph-node stores these as 64-bit integers
+        "Timestamp" | "Int8" => "i64".to_string(),
         // Entity references are stored by their ID string
         _other => "alloc::string::String".to_string(),
     }

@@ -11,7 +11,7 @@
 
 use crate::as_types::{
     new_asc_big_int, new_asc_bytes, new_asc_string, new_typed_map, new_value_big_int,
-    new_value_bool, new_value_bytes, new_value_int, new_value_string,
+    new_value_bool, new_value_bytes, new_value_int, new_value_int8, new_value_string,
 };
 use alloc::vec::Vec;
 
@@ -56,6 +56,12 @@ impl EntityBuilder {
     /// Set an i32 field.
     pub fn set_i32(&mut self, key: &'static str, value: i32) {
         let val_ptr = new_value_int(value);
+        self.fields.push((key, val_ptr));
+    }
+
+    /// Set an i64 field (Int8 / Timestamp scalars).
+    pub fn set_i64(&mut self, key: &'static str, value: i64) {
+        let val_ptr = new_value_int8(value);
         self.fields.push((key, val_ptr));
     }
 

@@ -74,6 +74,8 @@ pub const VALUE_KIND_INT: u32 = 1;
 pub const VALUE_KIND_BOOL: u32 = 3;
 pub const VALUE_KIND_BYTES: u32 = 6;
 pub const VALUE_KIND_BIG_INT: u32 = 7;
+/// Int8 / Timestamp — 64-bit signed integer (graph-ts ValueKind 8).
+pub const VALUE_KIND_INT8: u32 = 8;
 
 // ============================================================================
 // AscString
@@ -189,6 +191,11 @@ pub fn new_value_big_int(big_int_ptr: u32) -> u32 {
 /// Build a `Value` of kind Int (i32).
 pub fn new_value_int(n: i32) -> u32 {
     new_value(VALUE_KIND_INT, n as u64)
+}
+
+/// Build a `Value` of kind Int8 (i64) — used for `Int8` and `Timestamp` scalars.
+pub fn new_value_int8(n: i64) -> u32 {
+    new_value(VALUE_KIND_INT8, n as u64)
 }
 
 /// Build a `Value` of kind Bool.

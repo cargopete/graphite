@@ -46,6 +46,9 @@ pub struct MockHost {
 
     /// Current network name.
     pub current_network: String,
+
+    /// Mock ENS name-by-address registry.
+    pub ens_names: HashMap<Address, String>,
 }
 
 impl MockHost {
@@ -83,6 +86,11 @@ impl MockHost {
     /// Mock IPFS content.
     pub fn mock_ipfs(&mut self, hash: impl Into<String>, content: impl Into<Bytes>) {
         self.ipfs_content.insert(hash.into(), content.into());
+    }
+
+    /// Register a mock ENS name for an address.
+    pub fn mock_ens_name(&mut self, address: Address, name: impl Into<String>) {
+        self.ens_names.insert(address, name.into());
     }
 
     // ---- Call tracking helpers ----
@@ -205,6 +213,10 @@ impl HostFunctions for MockHost {
             .get(hash)
             .cloned()
             .ok_or_else(|| IpfsError::NotFound(hash.to_string()))
+    }
+
+    fn ens_name_by_address(&self, address: Address) -> Option<String> {
+        self.ens_names.get(&address).cloned()
     }
 
     fn data_source_create(&mut self, name: &str, params: &[String]) {

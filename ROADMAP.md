@@ -82,18 +82,18 @@ Current state: store operations, event handlers, scalar ABI types, array/tuple d
 
 ---
 
-## Out of Scope for April → May candidates
+## May candidates → all done
 
-| Feature | Effort | Notes |
-|---------|--------|-------|
+| Feature | Effort | Status |
+|---------|--------|--------|
 | **JSON module** | Medium | ✅ done. `graphite::json::from_bytes` / `from_str` → `JsonValue`. On WASM calls `json.fromBytes` host and decodes AS `JSONValue` from memory. On native uses `serde_json`. Re-exported via prelude. |
 | **Dynamic data source manifest codegen** | Low | ✅ done. `[[templates]]` section in `graphite.toml` generates the same ABI bindings as `[[contracts]]`. Deploy tool already walks `templates:` in the manifest via `collect_file_refs`. |
-| **ENS** (`ens.nameByAddress`) | Low-medium | FFI + mock. Rare in production subgraphs. |
-| **File data sources** (IPFS indexing) | High | Separate indexing model; new graph-node feature. |
-| **Timeseries / aggregations** | High | Schema model differs significantly from standard entities. |
-| **Subgraph composition** | High | Separate protocol concern. |
-| **Fulltext search** (`@fulltext`) | Low | PostgreSQL-specific; no WASM relevance. |
-| **Subgraph grafting** | Low | Deployment-time feature, not a handler concern. |
+| **ENS** (`ens.nameByAddress`) | Low-medium | ✅ done. `graphite::ens::name_by_address(address)` calls `ens.nameByAddress` FFI on WASM; checks `mock::set_ens_name` thread-local on native. `MockHost::mock_ens_name` for struct-based tests. |
+| **File data sources** (IPFS indexing) | High | ✅ done. `#[handler(file)]` macro variant generates a WASM export that reads IPFS content bytes and calls the `_impl` with `(content: &Vec<u8>, ctx: &FileContext)`. Schema codegen skips no changes needed — file handlers use standard entities. |
+| **Timeseries / aggregations** | High | ✅ done. `Timestamp` and `Int8` scalars map to `i64` in codegen. `set_i64`/`FieldValue::Int8` added throughout the stack. `@aggregation` entities skipped in codegen (graph-node auto-computes them). `_Schema_` (fulltext directives) also skipped. |
+| **Subgraph composition** | High | ✅ done (no-op). Composition is a query-layer concern — graph-node handles it at deploy time. No handler SDK changes needed. |
+| **Fulltext search** (`@fulltext`) | Low | ✅ done. `_Schema_` object skipped in codegen; `@fulltext` directives are PostgreSQL-specific and handled entirely by graph-node. |
+| **Subgraph grafting** | Low | ✅ done. `graft:` commented block added to `graphite init` scaffold's `subgraph.yaml`. Grafting is a deployment-time manifest option — no handler SDK changes needed. |
 
 ---
 

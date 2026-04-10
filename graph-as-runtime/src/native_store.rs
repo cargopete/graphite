@@ -16,6 +16,8 @@ pub enum FieldValue {
     BigInt(Vec<u8>),
     Bool(bool),
     Int(i32),
+    /// 64-bit signed integer (Int8 / Timestamp scalars).
+    Int8(i64),
     Null,
 }
 

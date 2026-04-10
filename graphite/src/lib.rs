@@ -35,6 +35,7 @@ extern crate alloc;
 pub mod call;
 pub mod crypto;
 pub mod data_source;
+pub mod ens;
 pub mod host;
 pub mod json;
 pub mod primitives;
@@ -97,4 +98,18 @@ pub struct CallContext {
     pub address: [u8; 20],
     /// Transaction sender address (20 bytes).
     pub from: [u8; 20],
+}
+
+/// Context passed to file data source handlers.
+///
+/// File data source handlers receive the raw IPFS content bytes as their first argument.
+/// This context is currently empty — all relevant information is in the file content itself.
+/// Defined in the manifest with `kind: file/ipfs`.
+pub struct FileContext {}
+
+impl FileContext {
+    #[doc(hidden)]
+    pub fn new() -> Self {
+        FileContext {}
+    }
 }
