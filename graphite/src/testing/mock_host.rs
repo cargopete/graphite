@@ -28,6 +28,10 @@ pub struct MockHost {
     /// Key is (address, calldata), value is raw response bytes or error.
     pub eth_calls: HashMap<(Address, Vec<u8>), Result<Bytes, EthereumCallError>>,
 
+    /// Record of every `ethereum_call_raw` invocation: (address, calldata).
+    /// Uses interior mutability so it can be updated through `&self`.
+    pub eth_calls_made: std::cell::RefCell<Vec<(Address, Vec<u8>)>>,
+
     /// Mock responses for IPFS fetches.
     pub ipfs_content: HashMap<String, Bytes>,
 
@@ -81,6 +85,65 @@ impl MockHost {
         self.ipfs_content.insert(hash.into(), content.into());
     }
 
+    // ---- Call tracking helpers ----
+
+    /// Assert that `address` was called with the selector for `signature`.
+    ///
+    /// Panics if no matching call was recorded during the test.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// host.assert_called(token_addr, "balanceOf(address)");
+    /// ```
+    pub fn assert_called(&self, address: Address, signature: &str) {
+        let sel = crate::crypto::selector(signature);
+        let made = self.eth_calls_made.borrow();
+        let found = made.iter().any(|(addr, data)| {
+            *addr == address && data.starts_with(&sel)
+        });
+        assert!(
+            found,
+            "Expected a call to {:?} with selector {:?} ({}), but none was recorded.\nCalls made: {}",
+            address,
+            sel,
+            signature,
+            made.iter()
+                .map(|(a, d)| {
+                    let hex: String = d.iter().map(|b| format!("{:02x}", b)).collect();
+                    format!("{:?} data=0x{}", a, hex)
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    /// Return how many times `address` was called with the selector for `signature`.
+    pub fn call_count(&self, address: Address, signature: &str) -> usize {
+        let sel = crate::crypto::selector(signature);
+        self.eth_calls_made
+            .borrow()
+            .iter()
+            .filter(|(addr, data)| *addr == address && data.starts_with(&sel))
+            .count()
+    }
+
+    /// Assert that a data source was created with the given name and address.
+    ///
+    /// Panics if no matching `data_source_create` call was recorded.
+    pub fn assert_data_source_created(&self, name: &str, address: Address) {
+        let hex: String = core::iter::once("0x".to_string())
+            .chain(address.as_slice().iter().map(|b| format!("{:02x}", b)))
+            .collect();
+        let found = self.created_data_sources.iter().any(|(n, params)| {
+            n == name && params.first().map(|p| p == &hex).unwrap_or(false)
+        });
+        assert!(
+            found,
+            "Expected data source '{}' to be created for address {}, but it wasn't.\nCreated: {:?}",
+            name, hex, self.created_data_sources
+        );
+    }
+
     /// Get all log messages at a specific level.
     pub fn logs_at(&self, level: LogLevel) -> Vec<&str> {
         self.logs
@@ -114,6 +177,9 @@ impl HostFunctions for MockHost {
         address: Address,
         calldata: &[u8],
     ) -> Result<Bytes, EthereumCallError> {
+        self.eth_calls_made
+            .borrow_mut()
+            .push((address, calldata.to_vec()));
         self.eth_calls
             .get(&(address, calldata.to_vec()))
             .cloned()

@@ -25,15 +25,22 @@
 //! This module is a thin façade over `graph_as_runtime::native_store`.
 
 use graph_as_runtime::native_store::{self, FieldValue};
+use std::cell::RefCell;
 use std::collections::HashMap;
+
+// Thread-local tracking of ethereum calls made during a test.
+thread_local! {
+    static ETH_CALLS_MADE: RefCell<Vec<([u8; 20], Vec<u8>)>> = RefCell::new(Vec::new());
+}
 
 // ============================================================================
 // Top-level helpers
 // ============================================================================
 
-/// Reset the in-memory store and logs. Call at the top of every test.
+/// Reset the in-memory store, logs, and call records. Call at the top of every test.
 pub fn reset() {
     native_store::reset();
+    ETH_CALLS_MADE.with(|c| c.borrow_mut().clear());
 }
 
 /// Return the number of stored entities of the given type.
@@ -44,6 +51,69 @@ pub fn entity_count(entity_type: &str) -> usize {
 /// Return true if an entity of the given type and id exists in the store.
 pub fn has_entity(entity_type: &str, id: &str) -> bool {
     native_store::with_store(|s| s.has_entity(entity_type, id))
+}
+
+/// Assert that a contract at `address` was called with the selector for `signature`.
+///
+/// Only tracks calls made through [`MockHost::ethereum_call_raw`] in this module.
+///
+/// # Panics
+/// Panics if no matching call was recorded.
+pub fn assert_called(address: [u8; 20], signature: &str) {
+    let sel = crate::crypto::selector(signature);
+    let found = ETH_CALLS_MADE.with(|c| {
+        c.borrow().iter().any(|(addr, data)| {
+            *addr == address && data.starts_with(&sel)
+        })
+    });
+    assert!(
+        found,
+        "Expected a call to {} with selector {:02x?} ({}), but none was recorded.",
+        hex_addr(address),
+        sel,
+        signature,
+    );
+}
+
+/// Return the number of times `address` was called with the selector for `signature`.
+pub fn call_count(address: [u8; 20], signature: &str) -> usize {
+    let sel = crate::crypto::selector(signature);
+    ETH_CALLS_MADE.with(|c| {
+        c.borrow()
+            .iter()
+            .filter(|(addr, data)| *addr == address && data.starts_with(&sel))
+            .count()
+    })
+}
+
+/// Assert that a data source template was created with the given name and address.
+///
+/// Checks the [`MockHost::created_data_sources`] list. If you are using the
+/// `graphite::testing::MockHost` (not this module's `MockHost`), use
+/// `host.assert_data_source_created()` instead.
+///
+/// # Panics
+/// Panics if no matching `data_source_create` call was recorded.
+pub fn assert_data_source_created(host: &MockHost, name: &str, address: [u8; 20]) {
+    let hex = format!(
+        "0x{}",
+        address.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+    );
+    let found = host.created_data_sources.iter().any(|(n, params)| {
+        n == name && params.first().map(|p| p == &hex).unwrap_or(false)
+    });
+    assert!(
+        found,
+        "Expected data source '{}' to be created for address {}, but it wasn't.\nCreated: {:?}",
+        name, hex, host.created_data_sources
+    );
+}
+
+fn hex_addr(addr: [u8; 20]) -> String {
+    format!(
+        "0x{}",
+        addr.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+    )
 }
 
 /// Begin an assertion chain for an entity.
@@ -321,6 +391,8 @@ impl HostFunctions for MockHost {
         address: Address,
         calldata: &[u8],
     ) -> Result<Bytes, EthereumCallError> {
+        let addr_bytes: [u8; 20] = address.as_slice().try_into().expect("address is 20 bytes");
+        ETH_CALLS_MADE.with(|c| c.borrow_mut().push((addr_bytes, calldata.to_vec())));
         self.eth_calls
             .get(&(address, calldata.to_vec()))
             .cloned()

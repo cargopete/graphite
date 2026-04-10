@@ -32,6 +32,9 @@
 
 extern crate alloc;
 
+pub mod call;
+pub mod crypto;
+pub mod data_source;
 pub mod host;
 pub mod primitives;
 pub mod store;
