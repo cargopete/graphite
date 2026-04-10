@@ -129,3 +129,23 @@ macro_rules! log_error {
         $host.log($crate::host::LogLevel::Error, &alloc::format!($($arg)*))
     };
 }
+
+/// Log a critical-level message and return early from the handler.
+///
+/// When the subgraph manifest declares `features: [nonFatalErrors]`, a
+/// CRITICAL log causes graph-node to record the failure and continue indexing
+/// rather than aborting the entire subgraph.  Without that feature flag,
+/// graph-node halts indexing on the first CRITICAL log.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// nonfatal_error!(host, "token address {} not found", hex::encode(addr));
+/// return; // handler must return normally after logging
+/// ```
+#[macro_export]
+macro_rules! nonfatal_error {
+    ($host:expr, $($arg:tt)*) => {
+        $host.log($crate::host::LogLevel::Critical, &alloc::format!($($arg)*))
+    };
+}

@@ -31,16 +31,27 @@ use std::collections::HashMap;
 // Thread-local tracking of ethereum calls made during a test.
 thread_local! {
     static ETH_CALLS_MADE: RefCell<Vec<([u8; 20], Vec<u8>)>> = RefCell::new(Vec::new());
+    /// Thread-local IPFS content for AS-ABI-style handlers. See `set_ipfs_result`.
+    static IPFS_CONTENT: RefCell<HashMap<String, Vec<u8>>> = RefCell::new(HashMap::new());
 }
 
 // ============================================================================
 // Top-level helpers
 // ============================================================================
 
-/// Reset the in-memory store, logs, and call records. Call at the top of every test.
+/// Reset the in-memory store, logs, call records, and IPFS content. Call at the top of every test.
 pub fn reset() {
     native_store::reset();
     ETH_CALLS_MADE.with(|c| c.borrow_mut().clear());
+    IPFS_CONTENT.with(|c| c.borrow_mut().clear());
+}
+
+/// Register mock IPFS content for the given CID.
+///
+/// When `MockHost::ipfs_cat` is called with this `cid` it will return `content`.
+/// This stores the content in a thread-local so it works without a `MockHost` reference.
+pub fn set_ipfs_result(cid: impl Into<String>, content: impl Into<Vec<u8>>) {
+    IPFS_CONTENT.with(|c| c.borrow_mut().insert(cid.into(), content.into()));
 }
 
 /// Return the number of stored entities of the given type.
@@ -421,10 +432,17 @@ impl HostFunctions for MockHost {
     }
 
     fn ipfs_cat(&self, hash: &str) -> Result<Bytes, IpfsError> {
-        self.ipfs_content
-            .get(hash)
-            .cloned()
-            .ok_or_else(|| IpfsError::NotFound(hash.to_string()))
+        // Check instance content first, then the module-level thread-local.
+        if let Some(content) = self.ipfs_content.get(hash) {
+            return Ok(content.clone());
+        }
+        IPFS_CONTENT.with(|c| {
+            c.borrow()
+                .get(hash)
+                .cloned()
+                .map(Bytes::from)
+                .ok_or_else(|| IpfsError::NotFound(hash.to_string()))
+        })
     }
 
     fn data_source_create(&mut self, name: &str, params: &[String]) {

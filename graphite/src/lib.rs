@@ -74,3 +74,20 @@ pub struct EventContext {
     /// Contract address that emitted the event (20 bytes).
     pub address: [u8; 20],
 }
+
+/// Context passed to every call handler alongside the decoded call inputs.
+///
+/// Contains block and transaction metadata extracted from the EthereumCall
+/// AS object by `graph_as_runtime::ethereum::read_ethereum_call`.
+pub struct CallContext {
+    /// Block number as little-endian BigInt bytes.
+    pub block_number: alloc::vec::Vec<u8>,
+    /// Block timestamp as little-endian BigInt bytes.
+    pub block_timestamp: alloc::vec::Vec<u8>,
+    /// Transaction hash (32 bytes).
+    pub tx_hash: [u8; 32],
+    /// Contract address that was called (20 bytes).
+    pub address: [u8; 20],
+    /// Transaction sender address (20 bytes).
+    pub from: [u8; 20],
+}

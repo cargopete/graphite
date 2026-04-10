@@ -162,8 +162,12 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
-    // Detect whether this is a block handler via `#[handler(block)]`.
-    let is_block_handler = !attr.is_empty() && attr.to_string().trim() == "block";
+    let attr_str = attr.to_string();
+    let attr_str = attr_str.trim();
+
+    // Detect the handler variant.
+    let is_block_handler = !attr.is_empty() && attr_str == "block";
+    let is_call_handler = !attr.is_empty() && attr_str == "call";
 
     let input = parse_macro_input!(item as ItemFn);
     let fn_name = &input.sig.ident;
@@ -189,8 +193,31 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     // The impl function gets the original name suffixed with _impl.
     let impl_name = syn::Ident::new(&format!("{}_impl", fn_name), fn_name.span());
 
-    // Build the WASM entry point. Event handlers return void; block handlers return i32.
-    let wasm_entry = if is_block_handler {
+    // Build the WASM entry point. Event handlers return void; block handlers return i32;
+    // call handlers return void (graph-node call handlers have void signature).
+    let wasm_entry = if is_call_handler {
+        quote! {
+            #[cfg(target_arch = "wasm32")]
+            #[unsafe(no_mangle)]
+            pub extern "C" fn #fn_name(call_ptr: i32) {
+                let raw = unsafe {
+                    graph_as_runtime::ethereum::read_ethereum_call(call_ptr as u32)
+                };
+                let #param_name = match <#param_type as graph_as_runtime::ethereum::FromRawCall>::from_raw_call(&raw) {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+                let ctx = graphite::CallContext {
+                    block_number:    raw.block_number.clone(),
+                    block_timestamp: raw.block_timestamp.clone(),
+                    tx_hash:         raw.tx_hash,
+                    address:         raw.address,
+                    from:            raw.from,
+                };
+                #impl_name(&#param_name, &ctx);
+            }
+        }
+    } else if is_block_handler {
         quote! {
             #[cfg(target_arch = "wasm32")]
             #[unsafe(no_mangle)]
@@ -238,6 +265,13 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    // Call handlers use CallContext; event/block handlers use EventContext.
+    let ctx_type = if is_call_handler {
+        quote! { graphite::CallContext }
+    } else {
+        quote! { graphite::EventContext }
+    };
+
     let expanded = quote! {
         // ---------------------------------------------------------------
         // Implementation function — contains the user's handler body.
@@ -245,7 +279,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         // ---------------------------------------------------------------
         #fn_vis fn #impl_name(
             #param_name: &#param_type,
-            ctx: &graphite::EventContext,
+            ctx: &#ctx_type,
         ) #fn_body
 
         // ---------------------------------------------------------------
@@ -255,7 +289,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[cfg(not(target_arch = "wasm32"))]
         #fn_vis fn #fn_name(
             #param_name: &#param_type,
-            ctx: &graphite::EventContext,
+            ctx: &#ctx_type,
         ) {
             #impl_name(#param_name, ctx)
         }

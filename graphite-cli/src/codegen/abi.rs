@@ -3,7 +3,7 @@
 //! Parses Ethereum contract ABIs and generates Rust structs for events,
 //! complete with decoding logic using graph-as-runtime helper methods.
 
-use alloy_json_abi::{Event, EventParam, JsonAbi};
+use alloy_json_abi::{Event, EventParam, Function, JsonAbi, Param};
 use anyhow::{Context, Result};
 use heck::ToUpperCamelCase;
 use std::collections::HashSet;
@@ -45,6 +45,13 @@ pub fn generate_abi_bindings(abi_path: &Path, contract_name: &str) -> Result<Str
     for event in abi.events() {
         let event_code = generate_event_struct(event, contract_name)?;
         output.push_str(&event_code);
+        output.push('\n');
+    }
+
+    // Generate call structs for all ABI functions
+    for function in abi.functions() {
+        let call_code = generate_call_struct(function, contract_name)?;
+        output.push_str(&call_code);
         output.push('\n');
     }
 
@@ -138,6 +145,168 @@ fn generate_from_raw_event_impl(event: &Event, struct_name: &str) -> Result<Stri
     writeln!(output)?;
 
     Ok(output)
+}
+
+// ============================================================================
+// Call handler struct generation
+// ============================================================================
+
+/// Generate a Rust struct for a contract function call (call handler).
+///
+/// Emits a `{Contract}{FunctionName}Call` struct with the function's input
+/// parameters as fields, plus block/tx context fields.  Also emits a
+/// `FromRawCall` implementation that decodes the inputs by name from
+/// `RawEthereumCall`.
+fn generate_call_struct(function: &Function, contract_name: &str) -> Result<String> {
+    let mut output = String::new();
+    let fn_camel = function.name.to_upper_camel_case();
+    let struct_name = format!("{}{}Call", contract_name, fn_camel);
+
+    writeln!(output, "/// Generated from `{}` function call.", function.name)?;
+    writeln!(output, "pub struct {} {{", struct_name)?;
+
+    // Input parameters
+    let mut seen_names = HashSet::new();
+    for (i, param) in function.inputs.iter().enumerate() {
+        let field_name = call_param_to_field_name(param, i, &mut seen_names);
+        let rust_type = solidity_to_rust_type(&param.ty);
+        writeln!(output, "    pub {}: {},", field_name, rust_type)?;
+    }
+
+    // Context fields
+    writeln!(output, "    pub block_number: Vec<u8>,")?;
+    writeln!(output, "    pub block_timestamp: Vec<u8>,")?;
+    writeln!(output, "    pub tx_hash: [u8; 32],")?;
+    writeln!(output, "    pub address: [u8; 20],")?;
+    writeln!(output, "    pub from: [u8; 20],")?;
+    writeln!(output, "}}")?;
+    writeln!(output)?;
+
+    // FromRawCall impl
+    let impl_code = generate_from_raw_call_impl(function, &struct_name)?;
+    output.push_str(&impl_code);
+
+    Ok(output)
+}
+
+/// Generate `FromRawCall` impl for a call struct.
+fn generate_from_raw_call_impl(function: &Function, struct_name: &str) -> Result<String> {
+    let mut output = String::new();
+
+    writeln!(
+        output,
+        "impl graph_as_runtime::ethereum::FromRawCall for {} {{",
+        struct_name
+    )?;
+    writeln!(
+        output,
+        "    fn from_raw_call(raw: &graph_as_runtime::ethereum::RawEthereumCall) -> Result<Self, &'static str> {{"
+    )?;
+
+    let mut seen_names = HashSet::new();
+    for (i, param) in function.inputs.iter().enumerate() {
+        let field_name = call_param_to_field_name(param, i, &mut seen_names);
+        let param_name_str = if param.name.is_empty() {
+            format!("param_{}", i)
+        } else {
+            param.name.clone()
+        };
+        // Reuse raw_find_call logic but against raw.inputs via find_input_*
+        let find_expr = raw_call_input_expr(&param.ty, &param_name_str);
+        writeln!(output, "        let {} = {};", field_name, find_expr)?;
+    }
+
+    writeln!(output)?;
+    writeln!(output, "        Ok(Self {{")?;
+
+    seen_names.clear();
+    for (i, param) in function.inputs.iter().enumerate() {
+        let field_name = call_param_to_field_name(param, i, &mut seen_names);
+        writeln!(output, "            {},", field_name)?;
+    }
+
+    writeln!(output, "            block_number: raw.block_number.clone(),")?;
+    writeln!(output, "            block_timestamp: raw.block_timestamp.clone(),")?;
+    writeln!(output, "            tx_hash: raw.tx_hash,")?;
+    writeln!(output, "            address: raw.address,")?;
+    writeln!(output, "            from: raw.from,")?;
+    writeln!(output, "        }})")?;
+    writeln!(output, "    }}")?;
+    writeln!(output, "}}")?;
+    writeln!(output)?;
+
+    Ok(output)
+}
+
+/// Return the RHS expression for decoding a call input parameter from `RawEthereumCall`.
+fn raw_call_input_expr(sol_type: &str, param_name: &str) -> String {
+    // Array types
+    if let Some(inner) = sol_type.strip_suffix("[]") {
+        let extractor = array_element_extractor(inner);
+        return format!(
+            "raw.inputs.iter().find(|p| p.name == {:?}).and_then(|p| p.value.as_array()).map(|arr| arr.iter().filter_map(|v| {}).collect::<alloc::vec::Vec<_>>()).ok_or(\"input param not found\")?",
+            param_name, extractor
+        );
+    }
+    if sol_type.ends_with(']') {
+        if let Some(bracket) = sol_type.rfind('[') {
+            let inner = &sol_type[..bracket];
+            let extractor = array_element_extractor(inner);
+            return format!(
+                "raw.inputs.iter().find(|p| p.name == {:?}).and_then(|p| p.value.as_array()).map(|arr| arr.iter().filter_map(|v| {}).collect::<alloc::vec::Vec<_>>()).ok_or(\"input param not found\")?",
+                param_name, extractor
+            );
+        }
+    }
+    if sol_type.starts_with('(') || sol_type == "tuple" || sol_type.starts_with("tuple(") {
+        return format!(
+            "raw.inputs.iter().find(|p| p.name == {:?}).and_then(|p| p.value.as_tuple()).map(|t| t.to_vec()).ok_or(\"input param not found\")?",
+            param_name
+        );
+    }
+    // Scalar
+    let method = call_input_find_method(sol_type);
+    format!("raw.{}({:?}).map_err(|_| \"input param not found\")?", method, param_name)
+}
+
+/// Map a Solidity scalar type to the appropriate `find_input_*` method on `RawEthereumCall`.
+fn call_input_find_method(sol_type: &str) -> &'static str {
+    match sol_type {
+        "address" => "find_input_address",
+        "bool" => "find_input_bool",
+        _ if sol_type.starts_with("uint") => "find_input_uint",
+        _ => "find_input_bytes",
+    }
+}
+
+/// Convert a function `Param` to a valid Rust field name, handling duplicates.
+fn call_param_to_field_name(param: &Param, index: usize, seen: &mut HashSet<String>) -> String {
+    let base_name = if param.name.is_empty() {
+        format!("param_{}", index)
+    } else {
+        to_snake_case(&param.name)
+    };
+    let name = match base_name.as_str() {
+        "type" => "type_".to_string(),
+        "ref" => "ref_".to_string(),
+        "self" => "self_".to_string(),
+        "mod" => "mod_".to_string(),
+        "fn" => "fn_".to_string(),
+        other => other.to_string(),
+    };
+    if seen.contains(&name) {
+        let mut counter = 2;
+        loop {
+            let candidate = format!("{}_{}", name, counter);
+            if !seen.contains(&candidate) {
+                seen.insert(candidate.clone());
+                return candidate;
+            }
+            counter += 1;
+        }
+    }
+    seen.insert(name.clone());
+    name
 }
 
 /// Return the complete RHS expression for decoding a parameter.

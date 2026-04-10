@@ -90,6 +90,14 @@ fn generate_entity_struct<'a>(
         .find(|f| f.name == "id")
         .ok_or_else(|| anyhow::anyhow!("Entity {} must have an 'id' field", name))?;
 
+    // Collect names of @derivedFrom fields — they are computed by graph-node at
+    // query time and must not appear in the stored struct or save/load logic.
+    let derived: std::collections::HashSet<&str> = fields
+        .iter()
+        .filter(|f| f.directives.iter().any(|d| d.name == "derivedFrom"))
+        .map(|f| f.name.as_str())
+        .collect();
+
     writeln!(
         output,
         "/// Generated from `{}` entity in schema.graphql.",
@@ -101,7 +109,11 @@ fn generate_entity_struct<'a>(
     writeln!(output, "pub struct {} {{", name)?;
 
     // Emit fields — non-nullable fields use `T`, nullable fields use `Option<T>`.
+    // @derivedFrom fields are skipped — they're computed by graph-node, not stored.
     for field in fields {
+        if derived.contains(field.name.as_str()) {
+            continue;
+        }
         let field_name = field.name.to_snake_case();
         let (rust_type, nullable) = graphql_type_to_rust(&field.field_type);
 
@@ -125,7 +137,7 @@ fn generate_entity_struct<'a>(
     writeln!(output, "        Self {{")?;
     writeln!(output, "            id: id.into(),")?;
     for field in fields {
-        if field.name == "id" {
+        if field.name == "id" || derived.contains(field.name.as_str()) {
             continue;
         }
         let field_name = field.name.to_snake_case();
@@ -142,7 +154,7 @@ fn generate_entity_struct<'a>(
 
     // set_* builder methods
     for field in fields {
-        if field.name == "id" {
+        if field.name == "id" || derived.contains(field.name.as_str()) {
             continue;
         }
         let field_name = field.name.to_snake_case();
@@ -174,7 +186,7 @@ fn generate_entity_struct<'a>(
     writeln!(output, "        b.set_string(\"id\", &self.id);")?;
 
     for field in fields {
-        if field.name == "id" {
+        if field.name == "id" || derived.contains(field.name.as_str()) {
             continue;
         }
         let field_name = field.name.to_snake_case();
@@ -218,7 +230,7 @@ fn generate_entity_struct<'a>(
     )?;
 
     for field in fields {
-        if field.name == "id" {
+        if field.name == "id" || derived.contains(field.name.as_str()) {
             continue;
         }
         let field_name = field.name.to_snake_case();
@@ -267,7 +279,7 @@ fn generate_entity_struct<'a>(
     writeln!(output, "        Some(Self {{")?;
     writeln!(output, "            id: id.into(),")?;
     for field in fields {
-        if field.name == "id" {
+        if field.name == "id" || derived.contains(field.name.as_str()) {
             continue;
         }
         let field_name = field.name.to_snake_case();
@@ -295,7 +307,7 @@ fn generate_entity_struct<'a>(
     writeln!(output, "        Some(Self {{")?;
     writeln!(output, "            id: id.into(),")?;
     for field in fields {
-        if field.name == "id" {
+        if field.name == "id" || derived.contains(field.name.as_str()) {
             continue;
         }
         let field_name = field.name.to_snake_case();
@@ -666,5 +678,39 @@ mod tests {
         let schema = r#"type Transfer @entity { id: ID! from: Bytes! }"#;
         let result = generate_schema_entities_from_str(schema).unwrap();
         assert!(result.contains("pub fn remove(id: &str)"));
+    }
+
+    #[test]
+    fn derived_from_field_excluded_from_struct() {
+        let schema = r#"
+            type Token @entity {
+                id: ID!
+                name: String!
+                transfers: [Transfer!]! @derivedFrom(field: "token")
+            }
+        "#;
+        let result = generate_schema_entities_from_str(schema).unwrap();
+        // The derived field should NOT appear as a struct field or setter.
+        assert!(
+            !result.contains("transfers"),
+            "@derivedFrom field 'transfers' should not be in generated code, got:\n{}",
+            result
+        );
+        // The real fields should still be there.
+        assert!(result.contains("pub fn set_name"));
+    }
+
+    #[test]
+    fn derived_from_field_does_not_affect_setters() {
+        let schema = r#"
+            type Pair @entity {
+                id: ID!
+                token0: String!
+                swaps: [Swap!]! @derivedFrom(field: "pair")
+            }
+        "#;
+        let result = generate_schema_entities_from_str(schema).unwrap();
+        assert!(!result.contains("set_swaps"), "no setter should be generated for @derivedFrom field");
+        assert!(result.contains("set_token0"), "real fields should still have setters");
     }
 }
