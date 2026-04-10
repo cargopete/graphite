@@ -183,6 +183,11 @@ schema = "schema.graphql"
 # [[contracts]]
 # name = "MyContract"
 # abi = "abis/MyContract.json"
+
+# Dynamic data source templates (factory pattern):
+# [[templates]]
+# name = "Pair"
+# abi = "abis/Pair.json"
 "#
     );
     std::fs::write(project_dir.join("graphite.toml"), graphite_toml)?;
@@ -311,9 +316,13 @@ struct GraphiteConfig {
     output_dir: PathBuf,
     /// Path to GraphQL schema file
     schema: Option<PathBuf>,
-    /// Contract definitions
+    /// Data source contract definitions
     #[serde(default)]
     contracts: Vec<ContractConfig>,
+    /// Dynamic data source template definitions — same ABI bindings as contracts,
+    /// but listed under `templates:` in the subgraph manifest.
+    #[serde(default)]
+    templates: Vec<ContractConfig>,
 }
 
 fn default_output_dir() -> PathBuf {
@@ -362,8 +371,9 @@ fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
         println!("    → {}", output_path.display());
     }
 
-    // Generate contract bindings
-    for contract in &config.contracts {
+    // Generate contract bindings (dataSources + templates share the same codegen)
+    let all_contracts = config.contracts.iter().chain(config.templates.iter());
+    for contract in all_contracts {
         println!("  Generating bindings for {}...", contract.name);
 
         let code = codegen::generate_abi_bindings(&contract.abi, &contract.name)

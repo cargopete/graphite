@@ -77,6 +77,14 @@ unsafe extern "C" {
     #[link_name = "ipfs.cat"]
     pub fn ipfs_cat(hash: u32) -> u32;
 
+    // ========== JSON ==========
+
+    /// `json.fromBytes(data: u32) -> u32`
+    /// data:    AscPtr<Bytes>
+    /// returns: AscPtr<JSONValue> (panics in graph-node on invalid JSON)
+    #[link_name = "json.fromBytes"]
+    pub fn json_from_bytes(data: u32) -> u32;
+
     // ========== Data Source ==========
 
     /// `dataSource.create(name: u32, params: u32)`
@@ -150,6 +158,11 @@ pub unsafe fn crypto_keccak256(_input: u32) -> u32 {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn ipfs_cat(_hash: u32) -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn json_from_bytes(_data: u32) -> u32 {
     0
 }
 

@@ -52,6 +52,7 @@ pub mod panic_handler;
 pub mod class_ids;
 pub mod ethereum;
 pub mod ffi;
+pub mod json;
 
 /// Native-only: thread-local in-memory store for unit tests.
 #[cfg(not(target_arch = "wasm32"))]

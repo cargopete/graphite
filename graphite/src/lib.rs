@@ -36,6 +36,7 @@ pub mod call;
 pub mod crypto;
 pub mod data_source;
 pub mod host;
+pub mod json;
 pub mod primitives;
 pub mod store;
 pub mod testing;
@@ -47,6 +48,7 @@ pub mod mock;
 /// Prelude module — import everything you need with `use graphite::prelude::*`
 pub mod prelude {
     pub use crate::host::HostFunctions;
+    pub use crate::json::{self, JsonValue};
     pub use crate::primitives::{Address, AddressExt, B256, BigDecimal, BigInt, Bytes, U256};
     pub use crate::store::{Entity, FromValue, Store, Value};
     pub use graphite_macros::{Entity, handler};
