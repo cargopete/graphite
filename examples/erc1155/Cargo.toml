@@ -1,0 +1,20 @@
+[package]
+name = "erc1155-subgraph"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+graphite = { path = "../../graphite" }
+graphite-macros = { path = "../../graphite-macros" }
+graph-as-runtime = { path = "../../graph-as-runtime" }
+
+[dev-dependencies]
+hex = "0.4"
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"

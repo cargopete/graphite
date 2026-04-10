@@ -1,14 +1,16 @@
 //! Graphite CLI — build tooling for Rust subgraphs.
 //!
 //! Commands:
-//! - `graphite init` — scaffold a new subgraph project
-//! - `graphite codegen` — generate Rust types from ABI + schema
-//! - `graphite build` — compile to WASM
-//! - `graphite test` — run tests (delegates to cargo test)
-//! - `graphite deploy` — deploy to graph-node
+//! - `graphite init`     — scaffold a new subgraph project
+//! - `graphite codegen`  — generate Rust types from ABI + schema
+//! - `graphite manifest` — generate subgraph.yaml from graphite.toml
+//! - `graphite build`    — compile to WASM
+//! - `graphite test`     — run tests (delegates to cargo test)
+//! - `graphite deploy`   — deploy to graph-node
 
 mod codegen;
 mod deploy;
+mod manifest;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -45,6 +47,21 @@ enum Commands {
         /// Path to graphite.toml config (default: ./graphite.toml)
         #[arg(long, short)]
         config: Option<PathBuf>,
+
+        /// Watch ABI and schema files for changes and re-run automatically
+        #[arg(long, short)]
+        watch: bool,
+    },
+
+    /// Generate subgraph.yaml from graphite.toml
+    Manifest {
+        /// Path to graphite.toml config (default: ./graphite.toml)
+        #[arg(long, short)]
+        config: Option<PathBuf>,
+
+        /// Output path (default: ./subgraph.yaml)
+        #[arg(long, short)]
+        output: Option<PathBuf>,
     },
 
     /// Compile the subgraph to WASM
@@ -56,7 +73,11 @@ enum Commands {
 
     /// Run tests
     Test {
-        /// Additional arguments to pass to cargo test
+        /// Generate HTML coverage report via cargo-llvm-cov (must be installed)
+        #[arg(long)]
+        coverage: bool,
+
+        /// Additional arguments to pass to cargo test / cargo llvm-cov
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
@@ -100,10 +121,22 @@ fn main() -> Result<()> {
             cmd_init(&name, from_contract.as_deref(), &network)
         }
 
-        Commands::Codegen { config } => {
+        Commands::Codegen { config, watch } => {
             let config_path = config.unwrap_or_else(|| PathBuf::from("graphite.toml"));
-            println!("Generating types from ABI and schema...");
-            cmd_codegen(&config_path)
+            if watch {
+                println!("Watching for changes (Ctrl+C to stop)...");
+                cmd_codegen_watch(&config_path)
+            } else {
+                println!("Generating types from ABI and schema...");
+                cmd_codegen(&config_path)
+            }
+        }
+
+        Commands::Manifest { config, output } => {
+            let config_path = config.unwrap_or_else(|| PathBuf::from("graphite.toml"));
+            let output_path = output.unwrap_or_else(|| PathBuf::from("subgraph.yaml"));
+            println!("Generating subgraph.yaml...");
+            cmd_manifest(&config_path, &output_path)
         }
 
         Commands::Build { release } => {
@@ -114,9 +147,14 @@ fn main() -> Result<()> {
             cmd_build(release)
         }
 
-        Commands::Test { args } => {
-            println!("Running tests...");
-            cmd_test(&args)
+        Commands::Test { coverage, args } => {
+            if coverage {
+                println!("Running tests with coverage...");
+                cmd_test_coverage(&args)
+            } else {
+                println!("Running tests...");
+                cmd_test(&args)
+            }
         }
 
         Commands::Deploy {
@@ -315,19 +353,21 @@ src/generated/
 
 /// Configuration for codegen, read from graphite.toml
 #[derive(Debug, serde::Deserialize)]
-struct GraphiteConfig {
+pub(crate) struct GraphiteConfig {
     /// Output directory for generated code
     #[serde(default = "default_output_dir")]
-    output_dir: PathBuf,
+    pub(crate) output_dir: PathBuf,
     /// Path to GraphQL schema file
-    schema: Option<PathBuf>,
+    pub(crate) schema: Option<PathBuf>,
+    /// Target network (mainnet, arbitrum-one, etc.) — used by `graphite manifest`
+    pub(crate) network: Option<String>,
     /// Data source contract definitions
     #[serde(default)]
-    contracts: Vec<ContractConfig>,
+    pub(crate) contracts: Vec<ContractConfig>,
     /// Dynamic data source template definitions — same ABI bindings as contracts,
     /// but listed under `templates:` in the subgraph manifest.
     #[serde(default)]
-    templates: Vec<ContractConfig>,
+    pub(crate) templates: Vec<ContractConfig>,
 }
 
 fn default_output_dir() -> PathBuf {
@@ -335,11 +375,15 @@ fn default_output_dir() -> PathBuf {
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct ContractConfig {
+pub(crate) struct ContractConfig {
     /// Contract name (used for struct prefixes)
-    name: String,
+    pub(crate) name: String,
     /// Path to the ABI JSON file
-    abi: PathBuf,
+    pub(crate) abi: PathBuf,
+    /// Deployed contract address (used by `graphite manifest`)
+    pub(crate) address: Option<String>,
+    /// Block number to start indexing from (used by `graphite manifest`)
+    pub(crate) start_block: Option<u64>,
 }
 
 fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
@@ -408,6 +452,71 @@ fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
 
     println!("Done! Add `mod generated;` to your lib.rs to use the generated code.");
     Ok(())
+}
+
+fn cmd_codegen_watch(config_path: &PathBuf) -> Result<()> {
+    use notify::{Event, RecursiveMode, Watcher, recommended_watcher};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    // Run once immediately.
+    if let Err(e) = cmd_codegen(config_path) {
+        eprintln!("codegen error: {:#}", e);
+    }
+
+    // Collect paths to watch from the config.
+    let config_str = std::fs::read_to_string(config_path)
+        .with_context(|| format!("Failed to read {}", config_path.display()))?;
+    let config: GraphiteConfig = toml::from_str(&config_str)?;
+
+    let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
+    let mut watcher = recommended_watcher(tx)?;
+
+    // Watch config file itself.
+    watcher.watch(config_path, RecursiveMode::NonRecursive)?;
+    // Watch schema.
+    if let Some(ref schema) = config.schema {
+        if schema.exists() {
+            watcher.watch(schema, RecursiveMode::NonRecursive)?;
+        }
+    }
+    // Watch each ABI file.
+    for c in config.contracts.iter().chain(config.templates.iter()) {
+        if c.abi.exists() {
+            watcher.watch(&c.abi, RecursiveMode::NonRecursive)?;
+        }
+    }
+
+    println!("Watching... (Ctrl+C to stop)");
+
+    let debounce = Duration::from_millis(300);
+    let mut last_run = Instant::now() - debounce;
+
+    loop {
+        match rx.recv() {
+            Ok(Ok(_event)) => {
+                // Debounce: ignore events that arrive within 300 ms of the last run.
+                if last_run.elapsed() < debounce {
+                    continue;
+                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                println!("\n[{}.{:03}] Change detected — regenerating...", now.as_secs(), now.subsec_millis());
+                if let Err(e) = cmd_codegen(config_path) {
+                    eprintln!("codegen error: {:#}", e);
+                }
+                last_run = Instant::now();
+            }
+            Ok(Err(e)) => eprintln!("watch error: {}", e),
+            Err(_) => break,
+        }
+    }
+    Ok(())
+}
+
+fn cmd_manifest(config_path: &PathBuf, output_path: &PathBuf) -> Result<()> {
+    manifest::generate(config_path, output_path)
 }
 
 fn cmd_build(release: bool) -> Result<()> {
@@ -515,6 +624,26 @@ fn cmd_test(args: &[String]) -> Result<()> {
     if !status.success() {
         anyhow::bail!("Tests failed");
     }
+    Ok(())
+}
+
+fn cmd_test_coverage(args: &[String]) -> Result<()> {
+    println!("  Running: cargo llvm-cov --html {}", args.join(" "));
+    println!("  (requires cargo-llvm-cov: cargo install cargo-llvm-cov)");
+
+    let status = std::process::Command::new("cargo")
+        .arg("llvm-cov")
+        .arg("--html")
+        .args(args)
+        .status()
+        .context("Failed to run cargo llvm-cov — is cargo-llvm-cov installed?")?;
+
+    if !status.success() {
+        anyhow::bail!("cargo llvm-cov failed");
+    }
+
+    println!();
+    println!("Coverage report: target/llvm-cov/html/index.html");
     Ok(())
 }
 

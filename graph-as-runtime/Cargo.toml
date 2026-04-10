@@ -1,11 +1,14 @@
 [package]
 name = "graph-as-runtime"
-description = "AssemblyScript ABI layer for graph-node compatibility — no_std WASM runtime"
+description = "AssemblyScript ABI layer for graph-node WASM compatibility — no_std runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 rust-version.workspace = true
+keywords = ["graph", "subgraph", "wasm", "assemblyscript", "graph-node"]
+categories = ["wasm", "no-std", "api-bindings"]
 
 # This crate is WASM-only; it has no native target use case.
 # Build with: cargo build --target wasm32-unknown-unknown

@@ -1,12 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["graphite", "graphite-macros", "graphite-cli", "graph-as-runtime", "examples/erc20", "examples/erc721", "examples/milestone", "examples/multi-source"]
+members = ["graphite", "graphite-macros", "graphite-cli", "graph-as-runtime", "examples/erc20", "examples/erc721", "examples/milestone", "examples/multi-source", "examples/erc1155"]
 
 [workspace.package]
 version = "1.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/cargopete/graphite"
+homepage = "https://github.com/cargopete/graphite"
 rust-version = "1.85"
 
 [workspace.dependencies]
@@ -51,6 +52,7 @@ toml = "0.8"
 graphql-parser = "0.4"
 ureq = { version = "3", features = ["json"] }
 serde_yaml = "0.9"
+notify = "6"
 
 [profile.release]
 panic = "abort"

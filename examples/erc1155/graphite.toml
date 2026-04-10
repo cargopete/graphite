@@ -1,0 +1,9 @@
+network = "mainnet"
+output_dir = "src/generated"
+schema = "schema.graphql"
+
+[[contracts]]
+name = "ERC1155"
+abi = "abis/ERC1155.json"
+# address = "0x..."
+# start_block = 0

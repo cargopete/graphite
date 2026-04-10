@@ -1,11 +1,14 @@
 [package]
 name = "graphite-macros"
-description = "Proc macros for the Graphite subgraph SDK"
+description = "Proc macros for the Graphite subgraph SDK (#[handler], #[derive(Entity)])"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 rust-version.workspace = true
+keywords = ["graph", "subgraph", "ethereum", "proc-macro", "wasm"]
+categories = ["api-bindings", "wasm", "development-tools"]
 
 [lib]
 proc-macro = true

@@ -302,7 +302,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         // In native builds the test harness calls this directly.
         // ---------------------------------------------------------------
         #fn_vis fn #impl_name(
-            #param_name: &#impl_param_type,
+            #param_name: #impl_param_type,
             ctx: &#ctx_type,
         ) #fn_body
 
@@ -312,7 +312,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         // ---------------------------------------------------------------
         #[cfg(not(target_arch = "wasm32"))]
         #fn_vis fn #fn_name(
-            #param_name: &#impl_param_type,
+            #param_name: #impl_param_type,
             ctx: &#ctx_type,
         ) {
             #impl_name(#param_name, ctx)

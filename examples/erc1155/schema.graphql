@@ -1,0 +1,16 @@
+type Token @entity {
+  id: ID!
+  uri: String
+  totalSupply: BigInt!
+}
+
+type Transfer @entity {
+  id: ID!
+  operator: Bytes!
+  from: Bytes!
+  to: Bytes!
+  token: Token!
+  amount: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}

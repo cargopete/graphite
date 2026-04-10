@@ -162,6 +162,29 @@ fn generate_entity_struct<'a>(
     writeln!(output, "    }}")?;
     writeln!(output)?;
 
+    // get_* accessor methods (returns reference or Option<&T>)
+    for field in fields {
+        if field.name == "id" || derived.contains(field.name.as_str()) {
+            continue;
+        }
+        let field_name = field.name.to_snake_case();
+        let (rust_type, nullable) = graphql_type_to_rust(&field.field_type);
+        if nullable {
+            writeln!(
+                output,
+                "    pub fn {}(&self) -> Option<&{}> {{ self.{}.as_ref() }}",
+                field_name, rust_type, field_name
+            )?;
+        } else {
+            writeln!(
+                output,
+                "    pub fn {}(&self) -> &{} {{ &self.{} }}",
+                field_name, rust_type, field_name
+            )?;
+        }
+        writeln!(output)?;
+    }
+
     // set_* builder methods
     for field in fields {
         if field.name == "id" || derived.contains(field.name.as_str()) {
@@ -396,7 +419,7 @@ fn wasm_load_field_decode<'a>(
         "Boolean" => format!("get({:?}).and_then(|v| v.as_bool())", gql_name),
         "Int" => format!("get({:?}).and_then(|v| v.as_i32())", gql_name),
         "Timestamp" | "Int8" => format!("get({:?}).and_then(|v| v.as_i64())", gql_name),
-        _ => format!("get({:?}).and_then(|v| v.as_bytes())", gql_name),
+        _ => format!("get({:?}).and_then(|v| v.as_string().map(|s| s.to_string()))", gql_name),
     };
     if nullable {
         format!("            {}: {},\n", field_name, expr)
@@ -447,7 +470,7 @@ fn native_load_field_decode<'a>(
             gql_name
         ),
         _ => format!(
-            "fields.get({:?}).and_then(|v| if let FieldValue::Bytes(b) = v {{ Some(b.clone()) }} else {{ None }})",
+            "fields.get({:?}).and_then(|v| if let FieldValue::String(s) = v {{ Some(s.clone()) }} else {{ None }})",
             gql_name
         ),
     };
