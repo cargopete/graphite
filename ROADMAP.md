@@ -2,116 +2,77 @@
 
 Goal: full feature parity with AssemblyScript `graph-ts` so any production subgraph can be written in Rust.
 
-Current state: store operations, event handlers, scalar ABI types, array/tuple decoding, ethereum.decode, contract calls, data sources, schema derivedFrom, call handlers, and native testing all work. ERC20 and ERC721 subgraphs are live on The Graph Studio (Arbitrum One).
+Current state: store operations, event handlers, scalar ABI types, array/tuple decoding, ethereum.decode, contract calls, data sources, schema derivedFrom, call handlers, receipt handlers, and native testing all work. ERC20 and ERC721 subgraphs are live on The Graph Studio (Arbitrum One).
 
 ---
 
 ## Week 1 — Quick Wins (Apr 9–13)
 
-Low-effort, high-value. None of these require architectural changes.
-
 ### 1.1 `BigDecimal` arithmetic
-**Status:** type exists, zero operators.
-Add `Add`, `Sub`, `Mul`, `Div` impls in `graphite/src/primitives.rs`. Back them with `num-bigint` (already a dependency). Every DeFi subgraph needs this for price and TVL calculations.
+**Status:** ✅ done. `Add`, `Sub`, `Mul`, `Div` impls in `graphite/src/primitives.rs`, backed by `num-bigint`.
 
 ### 1.2 `BigInt` modulo
-**Status:** `%` operator missing.
-Trivial `Rem` impl. Financial calculations and tick/slot math need it.
+**Status:** ✅ done. `Rem` impl added to `BigInt`.
 
 ### 1.3 `entity.remove()` codegen
-**Status:** `store.remove` FFI works, codegen never emits a `.remove()` method.
-Add `pub fn remove(id: &str)` to each generated entity in `schema.rs`. One-line call to `ffi::store_remove`.
+**Status:** ✅ done. `pub fn remove(id: &str)` emitted for every generated entity; calls `ffi::store_remove` on WASM and the native store on non-WASM builds.
 
 ### 1.4 `@entity(immutable: true)` support
-**Status:** schema codegen ignores all directives beyond `@entity`.
-Parse the `immutable` argument in `schema.rs`. Immutable entities don't emit `save()` — only an initial write. Affects generated struct and serialisation.
+**Status:** ✅ done. Immutable entities detected in `schema.rs`; `save()` is suppressed and only the initial write path is emitted.
 
 ### 1.5 `Address` type utilities
-**Status:** `Address` re-exported from `alloy_primitives` but no `from_string()` convenience.
-Add `Address::from_hex_str(s: &str)` in `graphite/src/primitives.rs`. Subgraphs compare addresses as strings all the time.
+**Status:** ✅ done. `Address::from_hex_str(s: &str)` added via `AddressExt` trait in `graphite/src/primitives.rs`.
 
 ### 1.6 Field nullability in codegen
-**Status:** all generated entity fields are `Option<T>` regardless of `!` in the schema.
-Respect the non-null marker — non-nullable fields should be `T`, not `Option<T>`, to give users a compiler error rather than a silent `None`.
+**Status:** ✅ done. Non-nullable fields (`!` in schema) are emitted as `T` instead of `Option<T>`, giving a compile error rather than a silent `None`.
 
 ---
 
 ## Week 2 — Tuple and Array Event Decoding (Apr 14–20)
 
-The single biggest gap. Any contract using complex event params breaks today.
-
 ### 2.1 Runtime decoder for array types
-**Status:** `KIND_ARRAY` and `KIND_FIXED_ARRAY` discriminants recognised but return stub `EthereumValue::Array`.
-Implement full decoding in `graph-as-runtime/src/ethereum.rs`:
-- Fixed arrays: `T[N]` → `Vec<EthereumValue>`
-- Dynamic arrays: `T[]` → `Vec<EthereumValue>`
-- Nested arrays: `T[][]`
+**Status:** ✅ done. Fixed arrays (`T[N]`), dynamic arrays (`T[]`), and nested arrays (`T[][]`) fully decoded in `graph-as-runtime/src/ethereum.rs` via `read_ethereum_value_array`.
 
 ### 2.2 Runtime decoder for tuple types
-**Status:** `KIND_TUPLE` returns stub.
-Decode `(T1, T2, ...)` → `Vec<EthereumValue>` recursively.
-Covers: Uniswap V3 `Swap`, Aave `Borrow`, most modern DeFi events.
+**Status:** ✅ done. `KIND_TUPLE` decoded recursively into `EthereumValue::Tuple(Vec<EthereumValue>)`. Covers Uniswap V3 `Swap`, Aave `Borrow`, and similar modern DeFi events.
 
 ### 2.3 Codegen for complex event param types
-**Status:** codegen maps everything it doesn't recognise to `find_bytes()`.
-Update `abi.rs` to emit correct field types for arrays and tuples:
-- `uint256[]` → `Vec<Vec<u8>>`
-- `address[]` → `Vec<[u8; 20]>`
-- `(uint256, address)` → a named tuple struct or `(Vec<u8>, [u8; 20])`
+**Status:** ✅ done. `abi.rs` emits correct field types and `find_array` / `find_tuple` accessors for array and tuple params.
 
 ### 2.4 `ethereum.decode` host function
-**Status:** not present anywhere.
-Add `ffi::ethereum_decode(types: AscPtr, data: AscPtr) -> AscPtr` and a higher-level wrapper `ethereum::decode(types: &[AbiType], data: &[u8]) -> Vec<EthereumValue>`. Required for subgraphs that decode calldata directly.
+**Status:** ✅ done. `ethereum_decode(types, data)` wrapper in `graph-as-runtime/src/ethereum.rs`; calls the host FFI on WASM, returns `None` on native (mock directly with `EthereumValue`).
 
 ---
 
 ## Week 3 — Contract Calls and Dynamic Data Sources (Apr 21–25)
 
-The two features that unlock DeFi factory patterns and on-chain state reads.
-
 ### 3.1 `ethereum.call` SDK wrapper
-**Status:** FFI imported, no SDK or mock.
-Add a `ContractCall` builder to `graphite`:
-```rust
-let result = ContractCall::new(address, "latestAnswer()(int256)")
-    .call(host)?;
-```
-Must also add a `MockContractCall` to `graphite/src/mock.rs` so calls can be stubbed in `cargo test`.
+**Status:** ✅ done. `ContractCall::new(address, signature).with_args(encoded).call(host)` builder in `graphite/src/call.rs`. Selector computed via `crypto::selector`.
 
 ### 3.2 `ethereum.call` native mock
-Test support: `mock::set_call_result(address, signature, result)` and `mock::assert_called(address, signature)`.
+**Status:** ✅ done. `mock::set_call_result`, `mock::assert_called`, `mock::call_count` on the thread-local mock; `MockHost::assert_called` and `MockHost::call_count` on the struct-based mock.
 
 ### 3.3 Dynamic data sources
-**Status:** `dataSource.create` FFI imported, no codegen, no manifest template support.
-Three parts:
-1. Parse `templates:` section in `subgraph.yaml` in the deploy tool.
-2. Generate a `DataSourceTemplate::create(name, address)` call in codegen.
-3. Expose `dataSource::address()` and `dataSource::network()` in the SDK.
+**Status:** ✅ done. `data_source::create`, `data_source::address`, and `data_source::network` wrappers in `graphite/src/data_source.rs`. `mock::assert_data_source_created` and `MockHost::assert_data_source_created` for testing. Manifest `templates:` section parsing is still manual (deploy tool does not yet auto-generate it).
 
-### 3.4 `crypto.keccak256` native mock / implementation
-**Status:** FFI imported, returns 0 locally.
-On native builds, use `tiny-keccak` (no_std compatible) instead of calling the host. This means keccak works in `cargo test` without any mock setup.
+### 3.4 `crypto.keccak256` native implementation
+**Status:** ✅ done. `graphite/src/crypto.rs` uses `alloy_primitives::keccak256` on both WASM and native — works in `cargo test` with no mock setup. `crypto::selector` strips return types and returns the 4-byte function selector.
 
 ---
 
 ## Week 4 — Schema Completeness and Handler Coverage (Apr 26–30)
 
-Round out the schema layer and handler types.
-
 ### 4.1 `@derivedFrom` in schema codegen
-**Status:** ✅ done. Fields with `@derivedFrom` are detected and excluded from the generated struct, setters, save(), and load(). Graph-node handles the reverse lookup at query time.
-`@derivedFrom(field: "token")` should generate a read-only derived accessor that queries `store.get` with the reverse-lookup field. Required for entity relationships in every non-trivial subgraph.
+**Status:** ✅ done. Fields with `@derivedFrom` are detected and excluded from the generated struct, `new()`, setters, `save()`, and `load()`. Graph-node handles the reverse lookup at query time.
 
 ### 4.2 Call handlers
-**Status:** ✅ done (SDK + codegen). `#[handler(call)]` generates WASM entry points that call `read_ethereum_call` and decode via `FromRawCall`. `{Contract}{Fn}Call` structs are generated by `graphite codegen` for every ABI function. Manifest `callHandlers` section parsing is still manual (not auto-generated by the deploy tool).
+**Status:** ✅ done. `#[handler(call)]` generates WASM entry points that call `read_ethereum_call` and decode via `FromRawCall`. `{Contract}{Fn}Call` structs are generated by `graphite codegen` for every ABI function. Manifest `callHandlers` section parsing is still manual (not auto-generated by the deploy tool).
 
 ### 4.3 Multiple data sources — validated example
-**Status:** deploy tool code should handle it, untested.
-Write a two-source subgraph example (e.g. ERC20 + ERC721 in one manifest) and add a CI test that deploys it to a local graph-node. Confirm the deploy tool handles multiple WASM files correctly.
+**Status:** ✅ done. `examples/multi-source/` — ERC20 + ERC721 data sources in one `subgraph.yaml`, sharing a single WASM file. Codegen handles multiple `[[contracts]]` entries. Four native tests cover both handlers, namespace isolation, and mixed event counts.
 
 ### 4.4 Receipt handlers
-**Status:** ethereum.rs allocates space for receipt (nullable), never decoded.
-Expose `EthereumTransactionReceipt` with status and logs array. Add `#[handler(receipt)]` macro variant. Lower priority — uncommon in production subgraphs.
+**Status:** ✅ done. `EthereumTransactionReceipt` (status, gas_used, log_count) decoded from AS memory at offset 28 of `EthereumEvent`. `receipt: Option<TransactionReceipt>` threaded through `RawEthereumEvent` → `EventContext`. Re-exported from `graphite` as `graphite::TransactionReceipt`.
 
 ### 4.5 Non-fatal errors
 **Status:** ✅ done. `nonfatal_error!(host, "msg")` macro logs at CRITICAL level. With `features: [nonFatalErrors]` in the manifest, graph-node records the error and continues indexing.
@@ -121,19 +82,18 @@ Expose `EthereumTransactionReceipt` with status and logs array. Add `#[handler(r
 
 ---
 
-## Out of Scope for April
+## Out of Scope for April → May candidates
 
-These are real features but belong in a later release:
-
-| Feature | Reason deferred |
-|---------|----------------|
-| **ENS** (`ens.nameByAddress`) | Rare in production subgraphs, complex to mock |
-| **JSON module** | Needed for NFT metadata; sizeable parser work |
-| **File data sources** (IPFS indexing) | New graph-node feature, separate indexing model |
-| **Subgraph grafting** | Deployment-time feature, not a handler concern |
-| **Timeseries / aggregations** | Very new graph-node feature, schema model differs |
-| **Subgraph composition** | Separate protocol concern |
-| **Fulltext search** (`@fulltext`) | PostgreSQL-specific, no WASM relevance |
+| Feature | Effort | Notes |
+|---------|--------|-------|
+| **JSON module** | Medium | No-std JSON parser needed (e.g. `serde-json-core`). High value — NFT metadata subgraphs depend on it. |
+| **Dynamic data source manifest codegen** | Low | Deploy tool does not yet auto-generate the `templates:` section from `graphite.toml`. |
+| **ENS** (`ens.nameByAddress`) | Low-medium | FFI + mock. Rare in production subgraphs. |
+| **File data sources** (IPFS indexing) | High | Separate indexing model; new graph-node feature. |
+| **Timeseries / aggregations** | High | Schema model differs significantly from standard entities. |
+| **Subgraph composition** | High | Separate protocol concern. |
+| **Fulltext search** (`@fulltext`) | Low | PostgreSQL-specific; no WASM relevance. |
+| **Subgraph grafting** | Low | Deployment-time feature, not a handler concern. |
 
 ---
 
