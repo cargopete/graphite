@@ -86,8 +86,8 @@ Current state: store operations, event handlers, scalar ABI types, array/tuple d
 
 | Feature | Effort | Notes |
 |---------|--------|-------|
-| **JSON module** | Medium | No-std JSON parser needed (e.g. `serde-json-core`). High value — NFT metadata subgraphs depend on it. |
-| **Dynamic data source manifest codegen** | Low | Deploy tool does not yet auto-generate the `templates:` section from `graphite.toml`. |
+| **JSON module** | Medium | ✅ done. `graphite::json::from_bytes` / `from_str` → `JsonValue`. On WASM calls `json.fromBytes` host and decodes AS `JSONValue` from memory. On native uses `serde_json`. Re-exported via prelude. |
+| **Dynamic data source manifest codegen** | Low | ✅ done. `[[templates]]` section in `graphite.toml` generates the same ABI bindings as `[[contracts]]`. Deploy tool already walks `templates:` in the manifest via `collect_file_refs`. |
 | **ENS** (`ens.nameByAddress`) | Low-medium | FFI + mock. Rare in production subgraphs. |
 | **File data sources** (IPFS indexing) | High | Separate indexing model; new graph-node feature. |
 | **Timeseries / aggregations** | High | Schema model differs significantly from standard entities. |
