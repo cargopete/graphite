@@ -279,14 +279,20 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-graphite = {{ package = "graphite-sdk", version = "1" }}
+graphite = {{ package = "graphite-sdk", version = "1", default-features = false }}
+graphite-macros = {{ version = "1" }}
+graph-as-runtime = {{ version = "1" }}
+
+[dev-dependencies]
+graphite = {{ package = "graphite-sdk", version = "1", features = ["std"] }}
 
 [profile.release]
 opt-level = "z"
 lto = true
+panic = "abort"
 "#,
         name = name
     );
@@ -357,7 +363,7 @@ dataSources:
       startBlock: 0
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.6
+      apiVersion: 0.0.7
       language: wasm/assemblyscript
       entities:
         - ExampleEntity
@@ -366,8 +372,8 @@ dataSources:
           file: ./abis/{name}.json
       eventHandlers:
         - event: Transfer(indexed address,indexed address,uint256)
-          handler: handleTransfer
-      file: ./target/wasm32-unknown-unknown/release/{name_snake}.wasm
+          handler: handle_transfer
+      file: ./build/{name_snake}.wasm
 "#,
         name = name,
         network = network,
@@ -497,10 +503,12 @@ src/generated/
     println!("Next steps:");
     println!("  cd {}", name);
     println!("  # Add your contract ABI to abis/");
-    println!("  # Update graphite.toml with your contract");
+    println!("  # Update graphite.toml with your contract address");
     println!("  # Edit schema.graphql with your entities");
-    println!("  graphite codegen");
-    println!("  cargo build --release --target wasm32-unknown-unknown");
+    println!("  graphite codegen    # generate Rust types from ABI + schema");
+    println!("  graphite manifest   # generate subgraph.yaml");
+    println!("  graphite build      # compile to WASM");
+    println!("  graphite test       # run native tests (no Docker needed)");
 
     Ok(())
 }
@@ -853,7 +861,8 @@ fn cmd_build(release: bool) -> Result<()> {
 }
 
 fn cmd_test(args: &[String]) -> Result<()> {
-    // Delegate to cargo test
+    let extra = if args.is_empty() { String::new() } else { format!(" {}", args.join(" ")) };
+    println!("  Running: cargo test{}", extra);
     let status = std::process::Command::new("cargo")
         .arg("test")
         .args(args)
