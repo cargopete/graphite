@@ -278,6 +278,35 @@ pub fn new_typed_map_entry_array(entries: &[u32]) -> u32 {
     arr_ptr
 }
 
+/// Build an `Array<AscString>` from a slice of string references.
+///
+/// Used as the `params` argument to `dataSource.create` / `dataSource.createWithContext`.
+/// Each string is encoded as an AS String object; the resulting pointers are packed
+/// into an `Array<string>` (class ID = ARRAY_STRING = 27, apiVersion 0.0.5 layout).
+pub fn new_asc_string_array(items: &[&str]) -> u32 {
+    let string_ptrs: Vec<u32> = items.iter().map(|s| new_asc_string(s)).collect();
+
+    // Build ArrayBuffer holding u32 string pointers.
+    let buf_bytes = (string_ptrs.len() * 4) as u32;
+    let buf_ptr = alloc_as_obj(CLASS_ARRAY_BUFFER, buf_bytes);
+    let buf_data = buf_ptr as *mut u32;
+    for (i, &ptr) in string_ptrs.iter().enumerate() {
+        unsafe { buf_data.add(i).write(ptr) };
+    }
+
+    // Array<string> with ArrayBufferView layout (16 bytes, class ID = ARRAY_STRING).
+    let arr_ptr = alloc_as_obj(class_ids::ARRAY_STRING, 16);
+    let arr_fields = arr_ptr as *mut u32;
+    unsafe {
+        arr_fields.write(buf_ptr);
+        arr_fields.add(1).write(buf_ptr);
+        arr_fields.add(2).write(buf_bytes);
+        arr_fields.add(3).write(string_ptrs.len() as u32);
+    }
+
+    arr_ptr
+}
+
 /// Build a `TypedMap<string, Value>` from a list of (key, value_ptr) pairs.
 ///
 /// AS TypedMap layout:

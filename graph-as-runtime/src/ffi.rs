@@ -38,6 +38,12 @@ unsafe extern "C" {
     #[link_name = "store.remove"]
     pub fn store_remove(entity: u32, id: u32);
 
+    /// `store.getInBlock(entity: u32, id: u32) -> u32`
+    /// Like `store.get` but only searches the current block's in-memory state.
+    /// Returns AscPtr<TypedMap<string, Value>> or 0 if not found.
+    #[link_name = "store.getInBlock"]
+    pub fn store_get_in_block(entity: u32, id: u32) -> u32;
+
     // ========== Logging ==========
 
     /// `log.log(level: u32, message: u32)`
@@ -101,6 +107,13 @@ unsafe extern "C" {
     #[link_name = "dataSource.create"]
     pub fn data_source_create(name: u32, params: u32);
 
+    /// `dataSource.createWithContext(name: u32, params: u32, context: u32)`
+    /// name:    AscPtr<AscString>
+    /// params:  AscPtr<Array<AscString>>
+    /// context: AscPtr<TypedMap<string, Value>>
+    #[link_name = "dataSource.createWithContext"]
+    pub fn data_source_create_with_context(name: u32, params: u32, context: u32);
+
     /// `dataSource.address() -> u32` — AscPtr<Address>
     #[link_name = "dataSource.address"]
     pub fn data_source_address() -> u32;
@@ -108,6 +121,20 @@ unsafe extern "C" {
     /// `dataSource.network() -> u32` — AscPtr<AscString>
     #[link_name = "dataSource.network"]
     pub fn data_source_network() -> u32;
+
+    /// `dataSource.context() -> u32` — AscPtr<TypedMap<string, Value>>
+    ///
+    /// Returns a TypedMap of the context values passed to `dataSource.create`
+    /// when this dynamic data source was instantiated. Returns a null pointer
+    /// if no context was provided.
+    #[link_name = "dataSource.context"]
+    pub fn data_source_context() -> u32;
+
+    /// `dataSource.id() -> u32` — AscPtr<AscString>
+    ///
+    /// Returns the unique identifier of the currently-executing data source.
+    #[link_name = "dataSource.id"]
+    pub fn data_source_id() -> u32;
 
     // ========== Abort ==========
 
@@ -134,6 +161,11 @@ pub unsafe fn store_get(_entity: u32, _id: u32) -> u32 {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn store_remove(_entity: u32, _id: u32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn store_get_in_block(_entity: u32, _id: u32) -> u32 {
+    0
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn log_log(level: u32, _message: u32) {
@@ -183,12 +215,25 @@ pub unsafe fn ens_name_by_address(_address: u32) -> u32 {
 pub unsafe fn data_source_create(_name: u32, _params: u32) {}
 
 #[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn data_source_create_with_context(_name: u32, _params: u32, _context: u32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn data_source_address() -> u32 {
     0
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn data_source_network() -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn data_source_context() -> u32 {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub unsafe fn data_source_id() -> u32 {
     0
 }
 

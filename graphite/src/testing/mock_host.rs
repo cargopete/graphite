@@ -35,8 +35,8 @@ pub struct MockHost {
     /// Mock responses for IPFS fetches.
     pub ipfs_content: HashMap<String, Bytes>,
 
-    /// Captured log messages.
-    pub logs: Vec<(LogLevel, String)>,
+    /// Captured log messages (use `get_logs()` or `logs_at()` to inspect).
+    pub logs: std::cell::RefCell<Vec<(LogLevel, String)>>,
 
     /// Created data sources.
     pub created_data_sources: Vec<(String, Vec<String>)>,
@@ -49,6 +49,12 @@ pub struct MockHost {
 
     /// Mock ENS name-by-address registry.
     pub ens_names: HashMap<Address, String>,
+
+    /// Current data source context (key-value pairs set via createWithContext).
+    pub current_context: Entity,
+
+    /// Current data source ID (defaults to empty string).
+    pub current_id: String,
 }
 
 impl MockHost {
@@ -69,6 +75,18 @@ impl MockHost {
     /// Set the current network.
     pub fn with_network(mut self, network: impl Into<String>) -> Self {
         self.current_network = network.into();
+        self
+    }
+
+    /// Set the current data source ID.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.current_id = id.into();
+        self
+    }
+
+    /// Set the current data source context.
+    pub fn with_context(mut self, context: Entity) -> Self {
+        self.current_context = context;
         self
     }
 
@@ -152,18 +170,24 @@ impl MockHost {
         );
     }
 
+    /// Get all captured log messages as a borrowed slice.
+    pub fn get_logs(&self) -> std::cell::Ref<'_, Vec<(LogLevel, String)>> {
+        self.logs.borrow()
+    }
+
     /// Get all log messages at a specific level.
-    pub fn logs_at(&self, level: LogLevel) -> Vec<&str> {
+    pub fn logs_at(&self, level: LogLevel) -> Vec<String> {
         self.logs
+            .borrow()
             .iter()
             .filter(|(l, _)| *l == level)
-            .map(|(_, msg)| msg.as_str())
+            .map(|(_, msg)| msg.clone())
             .collect()
     }
 
     /// Clear all logs.
     pub fn clear_logs(&mut self) {
-        self.logs.clear();
+        self.logs.borrow_mut().clear();
     }
 }
 
@@ -173,6 +197,11 @@ impl HostFunctions for MockHost {
     }
 
     fn store_get(&self, entity_type: &str, id: &str) -> Option<Entity> {
+        self.store.get(entity_type, id)
+    }
+
+    fn store_get_in_block(&self, entity_type: &str, id: &str) -> Option<Entity> {
+        // Native tests have no block/committed distinction — delegate to store_get.
         self.store.get(entity_type, id)
     }
 
@@ -202,9 +231,7 @@ impl HostFunctions for MockHost {
     }
 
     fn log(&self, level: LogLevel, message: &str) {
-        // Note: We need interior mutability here for a cleaner API.
-        // For now, logs won't be captured in the basic implementation.
-        // Users should use a RefCell wrapper or we redesign.
+        self.logs.borrow_mut().push((level, message.to_string()));
         eprintln!("[{:?}] {}", level, message);
     }
 
@@ -224,12 +251,26 @@ impl HostFunctions for MockHost {
             .push((name.to_string(), params.to_vec()));
     }
 
+    fn data_source_create_with_context(&mut self, name: &str, params: &[String], context: Entity) {
+        self.created_data_sources
+            .push((name.to_string(), params.to_vec()));
+        self.current_context = context;
+    }
+
     fn data_source_address(&self) -> Address {
         self.current_address
     }
 
     fn data_source_network(&self) -> String {
         self.current_network.clone()
+    }
+
+    fn data_source_context(&self) -> Entity {
+        self.current_context.clone()
+    }
+
+    fn data_source_id(&self) -> String {
+        self.current_id.clone()
     }
 }
 

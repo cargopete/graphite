@@ -1,8 +1,8 @@
 //! `graphite manifest` — generates subgraph.yaml from graphite.toml.
 //!
 //! Reads the ABI files to discover event signatures and constructs the
-//! graph-node manifest automatically. Only events are handled by default;
-//! call handlers can be added manually after generation.
+//! graph-node manifest automatically. Block handlers and call handlers
+//! are emitted when declared in graphite.toml.
 
 use anyhow::{Context, Result};
 use std::fmt::Write as FmtWrite;
@@ -125,6 +125,33 @@ fn write_datasource(
         }
     }
 
+    // Call handlers
+    if !c.call_handlers.is_empty() {
+        writeln!(out, "      callHandlers:").unwrap();
+        for ch in &c.call_handlers {
+            writeln!(out, "        - function: {}", ch.function).unwrap();
+            writeln!(out, "          handler: {}", ch.handler).unwrap();
+        }
+    }
+
+    // Block handlers
+    if !c.block_handlers.is_empty() {
+        writeln!(out, "      blockHandlers:").unwrap();
+        for bh in &c.block_handlers {
+            writeln!(out, "        - handler: {}", bh.handler).unwrap();
+            if let Some(filter) = &bh.filter {
+                writeln!(out, "          filter:").unwrap();
+                writeln!(out, "            kind: {}", filter.kind).unwrap();
+                if let Some(every) = filter.every {
+                    writeln!(out, "            every: {}", every).unwrap();
+                }
+            }
+        }
+    }
+
+    if c.receipt {
+        writeln!(out, "      receipt: true").unwrap();
+    }
     writeln!(out, "      file: {}", wasm_path).unwrap();
     Ok(())
 }

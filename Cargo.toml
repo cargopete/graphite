@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["graphite", "graphite-macros", "graphite-cli", "graph-as-runtime", "examples/erc20", "examples/erc721", "examples/milestone", "examples/multi-source", "examples/erc1155"]
+members = ["graphite", "graphite-macros", "graphite-cli", "graph-as-runtime", "examples/erc20", "examples/erc721", "examples/milestone", "examples/multi-source", "examples/erc1155", "examples/file-ds"]
 
 [workspace.package]
 version = "1.0.0"
@@ -44,6 +44,11 @@ insta = { version = "1.40", features = ["json"] }
 # Error handling
 thiserror = "2.0"
 anyhow = "1.0"
+
+# Crypto
+sha2 = { version = "0.10", default-features = false }
+sha3 = { version = "0.10", default-features = false }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 
 # Utilities
 hex = "0.4"

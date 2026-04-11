@@ -155,7 +155,7 @@ mod tests {
                     value: EthereumValue::Address(to),
                 },
             ],
-            receipt: None,
+            ..Default::default()
         }
     }
 
@@ -187,7 +187,7 @@ mod tests {
             tx_hash: [0xab; 32],
             log_index: vec![0],
             address: [0u8; 20],
-            receipt: None,
+            ..Default::default()
         };
         handle_transfer_single_impl(&event, &ctx);
 
@@ -227,7 +227,7 @@ mod tests {
             tx_hash: [0xab; 32],
             log_index: vec![0],
             address: [0u8; 20],
-            receipt: None,
+            ..Default::default()
         };
         handle_transfer_batch_impl(&event, &ctx);
 
@@ -256,7 +256,7 @@ mod tests {
                     value: EthereumValue::Uint(vec![42]),
                 },
             ],
-            receipt: None,
+            ..Default::default()
         };
 
         let event = ERC1155UriEvent::from_raw_event(&raw).unwrap();
@@ -266,7 +266,7 @@ mod tests {
             tx_hash: [0xab; 32],
             log_index: vec![0],
             address: [0u8; 20],
-            receipt: None,
+            ..Default::default()
         };
         handle_uri_impl(&event, &ctx);
 

@@ -207,22 +207,58 @@ pub struct EthereumTransactionReceipt {
     pub status: Option<bool>,
     /// Gas used by this transaction (BigInt bytes, little-endian).
     pub gas_used: Vec<u8>,
+    /// Cumulative gas used in the block up to and including this transaction
+    /// (BigInt bytes, little-endian).
+    pub cumulative_gas_used: Vec<u8>,
+    /// Contract address created by this transaction, if it was a deployment.
+    /// `None` for regular calls.
+    pub contract_address: Option<[u8; 20]>,
     /// Number of logs emitted by this transaction.
     pub log_count: u32,
 }
 
 /// Everything a handler needs from an EthereumEvent, in plain Rust types.
+#[derive(Default)]
 pub struct RawEthereumEvent {
     /// The contract address that emitted the event (20 bytes).
     pub address: [u8; 20],
     /// Log index (BigInt bytes, little-endian).
     pub log_index: Vec<u8>,
+
+    // ── Block fields ─────────────────────────────────────────────────────────
+    /// Block hash (32 bytes).
+    pub block_hash: [u8; 32],
     /// Block number (BigInt bytes, little-endian).
     pub block_number: Vec<u8>,
     /// Block timestamp (BigInt bytes, little-endian).
     pub block_timestamp: Vec<u8>,
+    /// Block gas used (BigInt bytes, little-endian).
+    pub block_gas_used: Vec<u8>,
+    /// Block gas limit (BigInt bytes, little-endian).
+    pub block_gas_limit: Vec<u8>,
+    /// Block difficulty (BigInt bytes, little-endian).
+    pub block_difficulty: Vec<u8>,
+    /// Base fee per gas (EIP-1559). `None` for pre-EIP-1559 blocks.
+    pub block_base_fee_per_gas: Option<Vec<u8>>,
+
+    // ── Transaction fields ───────────────────────────────────────────────────
     /// Transaction hash (32 bytes).
     pub tx_hash: [u8; 32],
+    /// Transaction index in the block (BigInt bytes, little-endian).
+    pub tx_index: Vec<u8>,
+    /// Transaction sender (20 bytes).
+    pub tx_from: [u8; 20],
+    /// Transaction recipient. `None` for contract creation transactions.
+    pub tx_to: Option<[u8; 20]>,
+    /// ETH value sent (BigInt bytes, little-endian).
+    pub tx_value: Vec<u8>,
+    /// Gas limit for this transaction (BigInt bytes, little-endian).
+    pub tx_gas_limit: Vec<u8>,
+    /// Gas price (BigInt bytes, little-endian).
+    pub tx_gas_price: Vec<u8>,
+    /// Transaction nonce (BigInt bytes, little-endian).
+    pub tx_nonce: Vec<u8>,
+
     /// Decoded event parameters in declaration order.
     pub params: Vec<EventParam>,
     /// Transaction receipt, if the manifest enables `receipt: true`.
@@ -244,14 +280,41 @@ pub struct RawEthereumEvent {
 pub struct RawEthereumCall {
     /// The contract address that was called (20 bytes).
     pub address: [u8; 20],
+
+    // ── Block fields ─────────────────────────────────────────────────────────
+    /// Block hash (32 bytes).
+    pub block_hash: [u8; 32],
     /// Block number (BigInt bytes, little-endian).
     pub block_number: Vec<u8>,
     /// Block timestamp (BigInt bytes, little-endian).
     pub block_timestamp: Vec<u8>,
+    /// Block gas used (BigInt bytes, little-endian).
+    pub block_gas_used: Vec<u8>,
+    /// Block gas limit (BigInt bytes, little-endian).
+    pub block_gas_limit: Vec<u8>,
+    /// Block difficulty (BigInt bytes, little-endian).
+    pub block_difficulty: Vec<u8>,
+    /// Base fee per gas (EIP-1559). `None` for pre-EIP-1559 blocks.
+    pub block_base_fee_per_gas: Option<Vec<u8>>,
+
+    // ── Transaction fields ───────────────────────────────────────────────────
     /// Transaction hash (32 bytes).
     pub tx_hash: [u8; 32],
-    /// Transaction sender address (20 bytes) — from `transaction.from`.
+    /// Transaction index in the block (BigInt bytes, little-endian).
+    pub tx_index: Vec<u8>,
+    /// Transaction sender address (20 bytes).
     pub from: [u8; 20],
+    /// Transaction recipient. `None` for contract creation transactions.
+    pub tx_to: Option<[u8; 20]>,
+    /// ETH value sent (BigInt bytes, little-endian).
+    pub tx_value: Vec<u8>,
+    /// Gas limit (BigInt bytes, little-endian).
+    pub tx_gas_limit: Vec<u8>,
+    /// Gas price (BigInt bytes, little-endian).
+    pub tx_gas_price: Vec<u8>,
+    /// Transaction nonce (BigInt bytes, little-endian).
+    pub tx_nonce: Vec<u8>,
+
     /// Decoded call input parameters in declaration order.
     pub inputs: Vec<EventParam>,
     /// Decoded call output values in declaration order.
@@ -408,14 +471,28 @@ unsafe fn read_ethereum_value_array(arr_ptr: u32) -> Vec<EthereumValue> {
 /// Read an `EthereumTransactionReceipt` from AS memory.
 ///
 /// `EthereumTransactionReceipt` payload offsets (u32 AscPtrs):
-///   offset 20  gasUsed  -> BigInt
-///   offset 28  logs     -> Array<Log>  (we only read `.length`)
-///   offset 32  status   -> BigInt (nullable; null = pre-EIP-658)
+///   offset 16  cumulativeGasUsed -> BigInt
+///   offset 20  gasUsed           -> BigInt
+///   offset 24  contractAddress   -> Address (nullable)
+///   offset 28  logs              -> Array<Log>  (we only read `.length`)
+///   offset 32  status            -> BigInt (nullable; null = pre-EIP-658)
 unsafe fn read_receipt(ptr: u32) -> EthereumTransactionReceipt {
     unsafe {
+        // cumulativeGasUsed at offset 16
+        let cumul_gas_ptr = read_u32_at(ptr, 16);
+        let cumulative_gas_used = if cumul_gas_ptr != 0 { read_uint8array(cumul_gas_ptr) } else { vec![0u8] };
+
         // gasUsed at offset 20
         let gas_ptr = read_u32_at(ptr, 20);
         let gas_used = if gas_ptr != 0 { read_uint8array(gas_ptr) } else { vec![0u8] };
+
+        // contractAddress at offset 24 — nullable Address (Uint8Array of 20 bytes)
+        let contract_addr_ptr = read_u32_at(ptr, 24);
+        let contract_address = if contract_addr_ptr != 0 {
+            Some(read_fixed_bytes::<20>(contract_addr_ptr))
+        } else {
+            None
+        };
 
         // logs array at offset 28 — we only need the element count
         let logs_ptr = read_u32_at(ptr, 28);
@@ -433,7 +510,7 @@ unsafe fn read_receipt(ptr: u32) -> EthereumTransactionReceipt {
             Some(is_success)
         };
 
-        EthereumTransactionReceipt { status, gas_used, log_count }
+        EthereumTransactionReceipt { status, gas_used, cumulative_gas_used, contract_address, log_count }
     }
 }
 
@@ -730,40 +807,76 @@ pub unsafe fn read_ethereum_event(ptr: u32) -> RawEthereumEvent {
             vec![0u8]
         };
 
-        // block.number and block.timestamp
-        // EthereumBlock offsets:
-        //   28  number    -> BigInt
-        //   40  timestamp -> BigInt
-        let (block_number, block_timestamp) = if block_ptr != 0 {
-            let num_ptr = read_u32_at(block_ptr, 28);
-            let ts_ptr = read_u32_at(block_ptr, 40);
-            let num = if num_ptr != 0 {
-                read_uint8array(num_ptr)
-            } else {
-                vec![0u8]
-            };
-            let ts = if ts_ptr != 0 {
-                read_uint8array(ts_ptr)
-            } else {
-                vec![0u8]
-            };
-            (num, ts)
+        // EthereumBlock offsets (u32 AscPtrs each):
+        //   0  hash             -> Bytes (32)
+        //   4  parentHash       -> Bytes (32)
+        //   8  unclesHash       -> Bytes (32)
+        //  12  author           -> Address (20)
+        //  16  stateRoot        -> Bytes (32)
+        //  20  transactionsRoot -> Bytes (32)
+        //  24  receiptsRoot     -> Bytes (32)
+        //  28  number           -> BigInt
+        //  32  gasUsed          -> BigInt
+        //  36  gasLimit         -> BigInt
+        //  40  timestamp        -> BigInt
+        //  44  difficulty       -> BigInt
+        //  48  totalDifficulty  -> BigInt
+        //  52  size             -> BigInt (nullable)
+        //  56  baseFeePerGas    -> BigInt (nullable)
+        let (block_hash, block_number, block_timestamp, block_gas_used, block_gas_limit, block_difficulty, block_base_fee_per_gas) = if block_ptr != 0 {
+            let hash_ptr     = read_u32_at(block_ptr, 0);
+            let num_ptr      = read_u32_at(block_ptr, 28);
+            let gas_used_ptr = read_u32_at(block_ptr, 32);
+            let gas_lim_ptr  = read_u32_at(block_ptr, 36);
+            let ts_ptr       = read_u32_at(block_ptr, 40);
+            let diff_ptr     = read_u32_at(block_ptr, 44);
+            let base_fee_ptr = read_u32_at(block_ptr, 56);
+
+            let hash     = if hash_ptr != 0 { read_fixed_bytes::<32>(hash_ptr) } else { [0u8; 32] };
+            let num      = if num_ptr != 0 { read_uint8array(num_ptr) } else { vec![0u8] };
+            let gas_used = if gas_used_ptr != 0 { read_uint8array(gas_used_ptr) } else { vec![0u8] };
+            let gas_lim  = if gas_lim_ptr != 0 { read_uint8array(gas_lim_ptr) } else { vec![0u8] };
+            let ts       = if ts_ptr != 0 { read_uint8array(ts_ptr) } else { vec![0u8] };
+            let diff     = if diff_ptr != 0 { read_uint8array(diff_ptr) } else { vec![0u8] };
+            let base_fee = if base_fee_ptr != 0 { Some(read_uint8array(base_fee_ptr)) } else { None };
+
+            (hash, num, ts, gas_used, gas_lim, diff, base_fee)
         } else {
-            (vec![0u8], vec![0u8])
+            ([0u8; 32], vec![0u8], vec![0u8], vec![0u8], vec![0u8], vec![0u8], None)
         };
 
-        // transaction.hash: Bytes (32 bytes)
-        // EthereumTransaction offsets:
-        //   0  hash -> Bytes (32)
-        let tx_hash = if tx_ptr != 0 {
-            let hash_ptr = read_u32_at(tx_ptr, 0);
-            if hash_ptr != 0 {
-                read_fixed_bytes::<32>(hash_ptr)
-            } else {
-                [0u8; 32]
-            }
+        // EthereumTransaction offsets (u32 AscPtrs):
+        //   0  hash     -> Bytes (32)
+        //   4  index    -> BigInt
+        //   8  from     -> Address (20)
+        //  12  to       -> Address (nullable)
+        //  16  value    -> BigInt
+        //  20  gasLimit -> BigInt
+        //  24  gasPrice -> BigInt
+        //  28  input    -> Bytes
+        //  32  nonce    -> BigInt
+        let (tx_hash, tx_index, tx_from, tx_to, tx_value, tx_gas_limit, tx_gas_price, tx_nonce) = if tx_ptr != 0 {
+            let hash_ptr      = read_u32_at(tx_ptr, 0);
+            let index_ptr     = read_u32_at(tx_ptr, 4);
+            let from_ptr      = read_u32_at(tx_ptr, 8);
+            let to_ptr        = read_u32_at(tx_ptr, 12);
+            let value_ptr     = read_u32_at(tx_ptr, 16);
+            let gas_lim_ptr   = read_u32_at(tx_ptr, 20);
+            let gas_price_ptr = read_u32_at(tx_ptr, 24);
+            let nonce_ptr     = read_u32_at(tx_ptr, 32);
+
+            let hash      = if hash_ptr != 0 { read_fixed_bytes::<32>(hash_ptr) } else { [0u8; 32] };
+            let index     = if index_ptr != 0 { read_uint8array(index_ptr) } else { vec![0u8] };
+            let from      = if from_ptr != 0 { read_fixed_bytes::<20>(from_ptr) } else { [0u8; 20] };
+            let to        = if to_ptr != 0 { Some(read_fixed_bytes::<20>(to_ptr)) } else { None };
+            let value     = if value_ptr != 0 { read_uint8array(value_ptr) } else { vec![0u8] };
+            let gas_lim   = if gas_lim_ptr != 0 { read_uint8array(gas_lim_ptr) } else { vec![0u8] };
+            let gas_price = if gas_price_ptr != 0 { read_uint8array(gas_price_ptr) } else { vec![0u8] };
+            let nonce     = if nonce_ptr != 0 { read_uint8array(nonce_ptr) } else { vec![0u8] };
+
+            (hash, index, from, to, value, gas_lim, gas_price, nonce)
         } else {
-            [0u8; 32]
+            ([0u8; 32], vec![0u8], [0u8; 20], None, vec![0u8], vec![0u8], vec![0u8], vec![0u8])
         };
 
         // parameters: Array<EthereumEventParam>
@@ -783,9 +896,21 @@ pub unsafe fn read_ethereum_event(ptr: u32) -> RawEthereumEvent {
         RawEthereumEvent {
             address,
             log_index,
+            block_hash,
             block_number,
             block_timestamp,
+            block_gas_used,
+            block_gas_limit,
+            block_difficulty,
+            block_base_fee_per_gas,
             tx_hash,
+            tx_index,
+            tx_from,
+            tx_to,
+            tx_value,
+            tx_gas_limit,
+            tx_gas_price,
+            tx_nonce,
             params,
             receipt,
         }
@@ -826,26 +951,52 @@ pub unsafe fn read_ethereum_call(ptr: u32) -> RawEthereumCall {
             [0u8; 20]
         };
 
-        // block.number and block.timestamp (same offsets as in EthereumEvent)
-        let (block_number, block_timestamp) = if block_ptr != 0 {
-            let num_ptr = read_u32_at(block_ptr, 28);
-            let ts_ptr = read_u32_at(block_ptr, 40);
-            let num = if num_ptr != 0 { read_uint8array(num_ptr) } else { vec![0u8] };
-            let ts = if ts_ptr != 0 { read_uint8array(ts_ptr) } else { vec![0u8] };
-            (num, ts)
+        // Block fields (same offsets as in EthereumEvent)
+        let (block_hash, block_number, block_timestamp, block_gas_used, block_gas_limit, block_difficulty, block_base_fee_per_gas) = if block_ptr != 0 {
+            let hash_ptr     = read_u32_at(block_ptr, 0);
+            let num_ptr      = read_u32_at(block_ptr, 28);
+            let gas_used_ptr = read_u32_at(block_ptr, 32);
+            let gas_lim_ptr  = read_u32_at(block_ptr, 36);
+            let ts_ptr       = read_u32_at(block_ptr, 40);
+            let diff_ptr     = read_u32_at(block_ptr, 44);
+            let base_fee_ptr = read_u32_at(block_ptr, 56);
+
+            let hash     = if hash_ptr != 0 { read_fixed_bytes::<32>(hash_ptr) } else { [0u8; 32] };
+            let num      = if num_ptr != 0 { read_uint8array(num_ptr) } else { vec![0u8] };
+            let gas_used = if gas_used_ptr != 0 { read_uint8array(gas_used_ptr) } else { vec![0u8] };
+            let gas_lim  = if gas_lim_ptr != 0 { read_uint8array(gas_lim_ptr) } else { vec![0u8] };
+            let ts       = if ts_ptr != 0 { read_uint8array(ts_ptr) } else { vec![0u8] };
+            let diff     = if diff_ptr != 0 { read_uint8array(diff_ptr) } else { vec![0u8] };
+            let base_fee = if base_fee_ptr != 0 { Some(read_uint8array(base_fee_ptr)) } else { None };
+
+            (hash, num, ts, gas_used, gas_lim, diff, base_fee)
         } else {
-            (vec![0u8], vec![0u8])
+            ([0u8; 32], vec![0u8], vec![0u8], vec![0u8], vec![0u8], vec![0u8], None)
         };
 
-        // transaction.hash (offset 0) and transaction.from (offset 8)
-        let (tx_hash, from) = if tx_ptr != 0 {
-            let hash_ptr = read_u32_at(tx_ptr, 0);
-            let from_ptr = read_u32_at(tx_ptr, 8);
-            let hash = if hash_ptr != 0 { read_fixed_bytes::<32>(hash_ptr) } else { [0u8; 32] };
-            let from = if from_ptr != 0 { read_fixed_bytes::<20>(from_ptr) } else { [0u8; 20] };
-            (hash, from)
+        // Transaction fields
+        let (tx_hash, tx_index, from, tx_to, tx_value, tx_gas_limit, tx_gas_price, tx_nonce) = if tx_ptr != 0 {
+            let hash_ptr      = read_u32_at(tx_ptr, 0);
+            let index_ptr     = read_u32_at(tx_ptr, 4);
+            let from_ptr      = read_u32_at(tx_ptr, 8);
+            let to_ptr        = read_u32_at(tx_ptr, 12);
+            let value_ptr     = read_u32_at(tx_ptr, 16);
+            let gas_lim_ptr   = read_u32_at(tx_ptr, 20);
+            let gas_price_ptr = read_u32_at(tx_ptr, 24);
+            let nonce_ptr     = read_u32_at(tx_ptr, 32);
+
+            let hash      = if hash_ptr != 0 { read_fixed_bytes::<32>(hash_ptr) } else { [0u8; 32] };
+            let index     = if index_ptr != 0 { read_uint8array(index_ptr) } else { vec![0u8] };
+            let from      = if from_ptr != 0 { read_fixed_bytes::<20>(from_ptr) } else { [0u8; 20] };
+            let to        = if to_ptr != 0 { Some(read_fixed_bytes::<20>(to_ptr)) } else { None };
+            let value     = if value_ptr != 0 { read_uint8array(value_ptr) } else { vec![0u8] };
+            let gas_lim   = if gas_lim_ptr != 0 { read_uint8array(gas_lim_ptr) } else { vec![0u8] };
+            let gas_price = if gas_price_ptr != 0 { read_uint8array(gas_price_ptr) } else { vec![0u8] };
+            let nonce     = if nonce_ptr != 0 { read_uint8array(nonce_ptr) } else { vec![0u8] };
+
+            (hash, index, from, to, value, gas_lim, gas_price, nonce)
         } else {
-            ([0u8; 32], [0u8; 20])
+            ([0u8; 32], vec![0u8], [0u8; 20], None, vec![0u8], vec![0u8], vec![0u8], vec![0u8])
         };
 
         // inputValues and outputValues: Array<EthereumEventParam>
@@ -854,10 +1005,21 @@ pub unsafe fn read_ethereum_call(ptr: u32) -> RawEthereumCall {
 
         RawEthereumCall {
             address,
+            block_hash,
             block_number,
             block_timestamp,
+            block_gas_used,
+            block_gas_limit,
+            block_difficulty,
+            block_base_fee_per_gas,
             tx_hash,
+            tx_index,
             from,
+            tx_to,
+            tx_value,
+            tx_gas_limit,
+            tx_gas_price,
+            tx_nonce,
             inputs,
             outputs,
         }

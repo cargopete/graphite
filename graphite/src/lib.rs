@@ -35,6 +35,7 @@ extern crate alloc;
 pub mod call;
 pub mod crypto;
 pub mod data_source;
+pub mod ethereum;
 pub mod ens;
 pub mod host;
 pub mod json;
@@ -68,17 +69,47 @@ pub use graph_as_runtime::ethereum::EthereumTransactionReceipt as TransactionRec
 ///
 /// Contains block and transaction metadata extracted from the EthereumEvent
 /// AS object by `graph_as_runtime::ethereum::read_ethereum_event`.
+#[derive(Default)]
 pub struct EventContext {
+    /// Contract address that emitted the event (20 bytes).
+    pub address: [u8; 20],
+    /// Log index as little-endian BigInt bytes.
+    pub log_index: alloc::vec::Vec<u8>,
+
+    // Block fields
+    /// Block hash (32 bytes).
+    pub block_hash: [u8; 32],
     /// Block number as little-endian BigInt bytes.
     pub block_number: alloc::vec::Vec<u8>,
     /// Block timestamp as little-endian BigInt bytes.
     pub block_timestamp: alloc::vec::Vec<u8>,
+    /// Block gas used as little-endian BigInt bytes.
+    pub block_gas_used: alloc::vec::Vec<u8>,
+    /// Block gas limit as little-endian BigInt bytes.
+    pub block_gas_limit: alloc::vec::Vec<u8>,
+    /// Block difficulty as little-endian BigInt bytes.
+    pub block_difficulty: alloc::vec::Vec<u8>,
+    /// Base fee per gas (EIP-1559). `None` for pre-EIP-1559 blocks.
+    pub block_base_fee_per_gas: Option<alloc::vec::Vec<u8>>,
+
+    // Transaction fields
     /// Transaction hash (32 bytes).
     pub tx_hash: [u8; 32],
-    /// Log index as little-endian BigInt bytes.
-    pub log_index: alloc::vec::Vec<u8>,
-    /// Contract address that emitted the event (20 bytes).
-    pub address: [u8; 20],
+    /// Transaction index in the block as little-endian BigInt bytes.
+    pub tx_index: alloc::vec::Vec<u8>,
+    /// Transaction sender (20 bytes).
+    pub tx_from: [u8; 20],
+    /// Transaction recipient. `None` for contract creation transactions.
+    pub tx_to: Option<[u8; 20]>,
+    /// ETH value sent as little-endian BigInt bytes.
+    pub tx_value: alloc::vec::Vec<u8>,
+    /// Gas limit as little-endian BigInt bytes.
+    pub tx_gas_limit: alloc::vec::Vec<u8>,
+    /// Gas price as little-endian BigInt bytes.
+    pub tx_gas_price: alloc::vec::Vec<u8>,
+    /// Transaction nonce as little-endian BigInt bytes.
+    pub tx_nonce: alloc::vec::Vec<u8>,
+
     /// Transaction receipt, if the manifest enables `receipt: true`.
     pub receipt: Option<crate::TransactionReceipt>,
 }
@@ -87,17 +118,44 @@ pub struct EventContext {
 ///
 /// Contains block and transaction metadata extracted from the EthereumCall
 /// AS object by `graph_as_runtime::ethereum::read_ethereum_call`.
+#[derive(Default)]
 pub struct CallContext {
+    /// Contract address that was called (20 bytes).
+    pub address: [u8; 20],
+
+    // Block fields
+    /// Block hash (32 bytes).
+    pub block_hash: [u8; 32],
     /// Block number as little-endian BigInt bytes.
     pub block_number: alloc::vec::Vec<u8>,
     /// Block timestamp as little-endian BigInt bytes.
     pub block_timestamp: alloc::vec::Vec<u8>,
+    /// Block gas used as little-endian BigInt bytes.
+    pub block_gas_used: alloc::vec::Vec<u8>,
+    /// Block gas limit as little-endian BigInt bytes.
+    pub block_gas_limit: alloc::vec::Vec<u8>,
+    /// Block difficulty as little-endian BigInt bytes.
+    pub block_difficulty: alloc::vec::Vec<u8>,
+    /// Base fee per gas (EIP-1559). `None` for pre-EIP-1559 blocks.
+    pub block_base_fee_per_gas: Option<alloc::vec::Vec<u8>>,
+
+    // Transaction fields
     /// Transaction hash (32 bytes).
     pub tx_hash: [u8; 32],
-    /// Contract address that was called (20 bytes).
-    pub address: [u8; 20],
+    /// Transaction index in the block as little-endian BigInt bytes.
+    pub tx_index: alloc::vec::Vec<u8>,
     /// Transaction sender address (20 bytes).
     pub from: [u8; 20],
+    /// Transaction recipient. `None` for contract creation transactions.
+    pub tx_to: Option<[u8; 20]>,
+    /// ETH value sent as little-endian BigInt bytes.
+    pub tx_value: alloc::vec::Vec<u8>,
+    /// Gas limit as little-endian BigInt bytes.
+    pub tx_gas_limit: alloc::vec::Vec<u8>,
+    /// Gas price as little-endian BigInt bytes.
+    pub tx_gas_price: alloc::vec::Vec<u8>,
+    /// Transaction nonce as little-endian BigInt bytes.
+    pub tx_nonce: alloc::vec::Vec<u8>,
 }
 
 /// Context passed to file data source handlers.

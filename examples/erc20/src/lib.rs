@@ -106,7 +106,7 @@ mod tests {
                     value: EthereumValue::Uint(alloc::vec![100, 0, 0, 0, 0, 0, 0, 0]),
                 },
             ],
-            receipt: None,
+            ..Default::default()
         }
     }
 

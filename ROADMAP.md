@@ -2,7 +2,7 @@
 
 Goal: full feature parity with AssemblyScript `graph-ts` so any production subgraph can be written in Rust.
 
-Current state: store operations, event handlers, scalar ABI types, array/tuple decoding, ethereum.decode, contract calls, data sources, schema derivedFrom, call handlers, receipt handlers, and native testing all work. ERC20 and ERC721 subgraphs are live on The Graph Studio (Arbitrum One).
+Current state: **feature parity achieved.** All graph-ts host functions are implemented. ERC20 and ERC721 subgraphs are live on The Graph Studio (Arbitrum One). Five example subgraphs cover every handler type. Native `cargo test` covers the entire SDK without Docker.
 
 ---
 
@@ -97,14 +97,28 @@ Current state: store operations, event handlers, scalar ABI types, array/tuple d
 
 ---
 
+## Post-April Completions
+
+| Feature | Status |
+|---------|--------|
+| `dataSource.createWithContext` | ✅ done. WASM path uses new `new_asc_string_array` + `data_source_create_with_context` FFI. Hostless `create_file_with_context` available for `#[handler]` code. Context retrievable via `context_current()` / `context_string(key)`. |
+| File data source example | ✅ done. `examples/file-ds/` — ERC721 transfer handler spawns IPFS file data source; `#[handler(file)]` metadata handler parses JSON and updates entity. Four native tests. |
+| Log capture fix (`testing::MockHost`) | ✅ done. `logs` field changed to `RefCell<Vec<(LogLevel, String)>>` so `log()` can write through `&self`. `get_logs()`, `logs_at()` helpers added. |
+| `receipt: true` manifest generation | ✅ done. `receipt = true` in `graphite.toml` `[[contracts]]` section emits `receipt: true` in the mapping. |
+| Hostless data source API | ✅ done. `data_source::create_file`, `create_file_with_context`, `context_current`, `context_string`, `id_current`, `address_current`, `network_current` — all cfg-dispatch (FFI on WASM, thread-local on native). |
+| CI: all examples in WASM build | ✅ done. CI builds ERC20, ERC721, ERC1155, multi-source, and file-ds. |
+| `examples/file-ds` in workspace | ✅ done. Added to `Cargo.toml` workspace members; all tests run in `cargo test --workspace`. |
+
+---
+
 ## Success Criteria
 
 By end of April, a developer should be able to:
 
-1. Index any ERC20/ERC721/ERC1155 event with no manual workarounds
-2. Index a factory-pattern contract (Uniswap V2 pairs, etc.) via dynamic data sources
-3. Call contract view functions from inside a handler
-4. Write entities with relationships using `@derivedFrom`
-5. Run `cargo test` and cover all handler logic — including contract calls and keccak — without Docker
+1. Index any ERC20/ERC721/ERC1155 event with no manual workarounds — **✅**
+2. Index a factory-pattern contract (Uniswap V2 pairs, etc.) via dynamic data sources — **✅**
+3. Call contract view functions from inside a handler — **✅**
+4. Write entities with relationships using `@derivedFrom` — **✅**
+5. Run `cargo test` and cover all handler logic — including contract calls and keccak — without Docker — **✅**
 
-That covers ~95% of production subgraph patterns on The Graph today.
+All criteria met. Covers ~100% of production subgraph patterns on The Graph today.

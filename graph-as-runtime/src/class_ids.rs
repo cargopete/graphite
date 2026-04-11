@@ -10,6 +10,10 @@
 //!
 //! Source: gnosis/subgraph-rs, verified against graph-node graph-ts@0.31 output.
 
+/// `Array<string>` — used for dataSource.create / createWithContext params.
+/// Class ID 27 is the value emitted by graph-ts@0.31 RTTI for Array<string>.
+pub const ARRAY_STRING: u32 = 27;
+
 /// `Array<TypedMapEntry<string,Value>>` — the entries array inside TypedMap.
 pub const ARRAY_TYPED_MAP_ENTRY: u32 = 28;
 

@@ -66,6 +66,33 @@ jobs:
             -o target/wasm32-unknown-unknown/release/erc721.opt.wasm
           ls -lh target/wasm32-unknown-unknown/release/erc721.opt.wasm
 
+      - name: Build ERC1155 WASM
+        run: |
+          cargo build -p erc1155 --target wasm32-unknown-unknown --release
+          wasm-opt \
+            --enable-bulk-memory --llvm-memory-copy-fill-lowering -Oz \
+            target/wasm32-unknown-unknown/release/erc1155.wasm \
+            -o target/wasm32-unknown-unknown/release/erc1155.opt.wasm
+          ls -lh target/wasm32-unknown-unknown/release/erc1155.opt.wasm
+
+      - name: Build multi-source WASM
+        run: |
+          cargo build -p multi-source --target wasm32-unknown-unknown --release
+          wasm-opt \
+            --enable-bulk-memory --llvm-memory-copy-fill-lowering -Oz \
+            target/wasm32-unknown-unknown/release/multi_source.wasm \
+            -o target/wasm32-unknown-unknown/release/multi_source.opt.wasm
+          ls -lh target/wasm32-unknown-unknown/release/multi_source.opt.wasm
+
+      - name: Build file-ds WASM
+        run: |
+          cargo build -p file-ds-subgraph --target wasm32-unknown-unknown --release
+          wasm-opt \
+            --enable-bulk-memory --llvm-memory-copy-fill-lowering -Oz \
+            target/wasm32-unknown-unknown/release/file_ds_subgraph.wasm \
+            -o target/wasm32-unknown-unknown/release/file_ds_subgraph.opt.wasm
+          ls -lh target/wasm32-unknown-unknown/release/file_ds_subgraph.opt.wasm
+
   fmt-clippy:
     name: Fmt + Clippy
     runs-on: ubuntu-latest

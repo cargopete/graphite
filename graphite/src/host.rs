@@ -21,6 +21,13 @@ pub trait HostFunctions {
     /// Load an entity from the database.
     fn store_get(&self, entity_type: &str, id: &str) -> Option<Entity>;
 
+    /// Load an entity from the current block's in-memory state only.
+    ///
+    /// Unlike `store_get`, this does not fall back to the committed database.
+    /// Returns `None` if the entity was not written in the current handler.
+    /// In native tests this falls back to `store_get`.
+    fn store_get_in_block(&self, entity_type: &str, id: &str) -> Option<Entity>;
+
     /// Remove an entity from the database.
     fn store_remove(&mut self, entity_type: &str, id: &str);
 
@@ -62,11 +69,31 @@ pub trait HostFunctions {
     /// Create a new data source from a template.
     fn data_source_create(&mut self, name: &str, params: &[String]);
 
+    /// Create a new data source from a template with a key-value context.
+    ///
+    /// The context is retrievable inside the template's handlers via
+    /// `dataSource.context()`. Useful for passing the parent entity ID
+    /// to file/ipfs handlers.
+    fn data_source_create_with_context(&mut self, name: &str, params: &[String], context: Entity);
+
     /// Get the address of the current data source.
     fn data_source_address(&self) -> Address;
 
     /// Get the network name of the current data source.
     fn data_source_network(&self) -> String;
+
+    /// Get the context of the current data source.
+    ///
+    /// Returns the key-value context that was passed to `dataSource.create`
+    /// when this dynamic data source was instantiated. Returns an empty entity
+    /// if no context was provided.
+    fn data_source_context(&self) -> Entity;
+
+    /// Get the unique identifier of the current data source.
+    ///
+    /// For dynamic data sources created from templates this is the data source
+    /// name combined with the address. Static data sources return their name.
+    fn data_source_id(&self) -> String;
 
     // ============ Type Conversions ============
     // Note: Most conversions are handled natively in Rust, but some

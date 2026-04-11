@@ -6,7 +6,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
-use core::ops::{Add, Div, Mul, Rem, Sub};
+use core::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Rem, Shl, Shr, Sub};
 use num_traits::Signed;
 
 // Re-export alloy primitives
@@ -295,6 +295,91 @@ impl Rem for &BigInt {
     }
 }
 
+impl BitAnd for BigInt {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl BitAnd for &BigInt {
+    type Output = BigInt;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        BigInt(&self.0 & &rhs.0)
+    }
+}
+
+impl BitOr for BigInt {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl BitOr for &BigInt {
+    type Output = BigInt;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        BigInt(&self.0 | &rhs.0)
+    }
+}
+
+impl BitXor for BigInt {
+    type Output = Self;
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        Self(self.0 ^ rhs.0)
+    }
+}
+
+impl BitXor for &BigInt {
+    type Output = BigInt;
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        BigInt(&self.0 ^ &rhs.0)
+    }
+}
+
+/// Bitwise NOT — two's complement: `!n == -n - 1`.
+impl Not for BigInt {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        Self(!self.0)
+    }
+}
+
+impl Not for &BigInt {
+    type Output = BigInt;
+    fn not(self) -> Self::Output {
+        BigInt(!self.0.clone())
+    }
+}
+
+impl Shl<u8> for BigInt {
+    type Output = Self;
+    fn shl(self, bits: u8) -> Self::Output {
+        Self(self.0 << bits as u64)
+    }
+}
+
+impl Shl<u8> for &BigInt {
+    type Output = BigInt;
+    fn shl(self, bits: u8) -> Self::Output {
+        BigInt(self.0.clone() << bits as u64)
+    }
+}
+
+impl Shr<u8> for BigInt {
+    type Output = Self;
+    fn shr(self, bits: u8) -> Self::Output {
+        Self(self.0 >> bits as u64)
+    }
+}
+
+impl Shr<u8> for &BigInt {
+    type Output = BigInt;
+    fn shr(self, bits: u8) -> Self::Output {
+        BigInt(self.0.clone() >> bits as u64)
+    }
+}
+
 /// Arbitrary precision decimal number.
 ///
 /// For financial calculations where precision matters.
@@ -483,6 +568,25 @@ mod tests {
         assert_eq!((a.clone() * b.clone()).0, num_bigint::BigInt::from(4200));
         assert_eq!((a.clone() / b.clone()).0, num_bigint::BigInt::from(2));
         assert_eq!((a % b).0, num_bigint::BigInt::from(16));
+    }
+
+    #[test]
+    fn bigint_bitwise() {
+        let a = BigInt::from(0b1100i32); // 12
+        let b = BigInt::from(0b1010i32); // 10
+
+        assert_eq!((a.clone() & b.clone()).to_string(), "8");  // 0b1000
+        assert_eq!((a.clone() | b.clone()).to_string(), "14"); // 0b1110
+        assert_eq!((a.clone() ^ b.clone()).to_string(), "6");  // 0b0110
+        assert_eq!((!BigInt::from(0i32)).to_string(), "-1");   // two's complement NOT
+        assert_eq!((!BigInt::from(1i32)).to_string(), "-2");
+    }
+
+    #[test]
+    fn bigint_shifts() {
+        let a = BigInt::from(1i32);
+        assert_eq!((a.clone() << 8u8).to_string(), "256");
+        assert_eq!((BigInt::from(256i32) >> 4u8).to_string(), "16");
     }
 
     #[test]

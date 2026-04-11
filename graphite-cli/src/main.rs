@@ -176,7 +176,72 @@ fn main() -> Result<()> {
     }
 }
 
-fn cmd_init(name: &str, _from_contract: Option<&str>, network: &str) -> Result<()> {
+/// Fetch a verified contract ABI from Etherscan V2 (or compatible explorer).
+///
+/// Uses the `ETHERSCAN_API_KEY` env var if set. Falls back to no key (works
+/// for many contracts but is rate-limited). Supports all major EVM networks
+/// via Etherscan's unified V2 API (chainId parameter).
+fn fetch_etherscan_abi(address: &str, network: &str) -> Result<String> {
+    let api_key = std::env::var("ETHERSCAN_API_KEY").unwrap_or_default();
+
+    // Etherscan V2 unified API — single endpoint, chain selected by chainid param.
+    let chain_id: u64 = match network {
+        "mainnet" | "ethereum" => 1,
+        "goerli" => 5,
+        "sepolia" => 11155111,
+        "holesky" => 17000,
+        "polygon" | "matic" => 137,
+        "polygon-mumbai" | "mumbai" => 80001,
+        "arbitrum-one" | "arbitrum" => 42161,
+        "arbitrum-nova" => 42170,
+        "arbitrum-sepolia" => 421614,
+        "optimism" => 10,
+        "optimism-sepolia" => 11155420,
+        "base" => 8453,
+        "base-sepolia" => 84532,
+        "bsc" | "binance" => 56,
+        "bsc-testnet" => 97,
+        "avalanche" => 43114,
+        "avalanche-fuji" | "fuji" => 43113,
+        "gnosis" | "xdai" => 100,
+        "linea" => 59144,
+        "scroll" => 534352,
+        "zksync" | "zksync-era" => 324,
+        "blast" => 81457,
+        "mantle" => 5000,
+        "celo" => 42220,
+        "fantom" => 250,
+        _ => 1, // default to mainnet
+    };
+
+    let url = format!(
+        "https://api.etherscan.io/v2/api?chainid={}&module=contract&action=getabi&address={}&apikey={}",
+        chain_id, address, api_key
+    );
+
+    let body: serde_json::Value = ureq::get(&url)
+        .call()
+        .context("HTTP request to Etherscan failed")?
+        .body_mut()
+        .read_json()
+        .context("Failed to parse Etherscan response as JSON")?;
+
+    let status = body.get("status").and_then(|v| v.as_str()).unwrap_or("");
+    if status != "1" {
+        let message = body
+            .get("result")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        anyhow::bail!("Etherscan returned an error: {}", message);
+    }
+
+    body.get("result")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .context("Missing 'result' field in Etherscan response")
+}
+
+fn cmd_init(name: &str, from_contract: Option<&str>, network: &str) -> Result<()> {
     let project_dir = PathBuf::from(name);
 
     // Check if directory already exists
@@ -187,6 +252,24 @@ fn cmd_init(name: &str, _from_contract: Option<&str>, network: &str) -> Result<(
     // Create directory structure
     std::fs::create_dir_all(project_dir.join("src"))?;
     std::fs::create_dir_all(project_dir.join("abis"))?;
+
+    // Optionally fetch ABI from Etherscan
+    let (abi_json, contract_address) = if let Some(address) = from_contract {
+        println!("  Fetching ABI from Etherscan for {}...", address);
+        match fetch_etherscan_abi(address, network) {
+            Ok(abi) => {
+                println!("  ABI fetched successfully.");
+                (abi, Some(address.to_string()))
+            }
+            Err(e) => {
+                eprintln!("  Warning: could not fetch ABI: {}", e);
+                eprintln!("  Falling back to placeholder ABI.");
+                (placeholder_abi(), None)
+            }
+        }
+    } else {
+        (placeholder_abi(), None)
+    };
 
     // Create Cargo.toml
     let cargo_toml = format!(
@@ -211,27 +294,50 @@ lto = true
     println!("  Created Cargo.toml");
 
     // Create graphite.toml
-    let graphite_toml = format!(
-        r#"# Graphite subgraph configuration
-
-output_dir = "src/generated"
-schema = "schema.graphql"
-
+    let contracts_section = if let Some(ref addr) = contract_address {
+        format!(
+            r#"
+[[contracts]]
+name = "{name}"
+abi = "abis/{name}.json"
+address = "{addr}"
+start_block = 0
+network = "{network}"
+"#,
+            name = name,
+            addr = addr,
+            network = network,
+        )
+    } else {
+        format!(
+            r#"
 # Add your contract ABIs here:
 # [[contracts]]
-# name = "MyContract"
-# abi = "abis/MyContract.json"
+# name = "{name}"
+# abi = "abis/{name}.json"
+# address = "0x..."
+# start_block = 0
 
 # Dynamic data source templates (factory pattern):
 # [[templates]]
 # name = "Pair"
 # abi = "abis/Pair.json"
-"#
+"#,
+            name = name,
+        )
+    };
+    let graphite_toml = format!(
+        "# Graphite subgraph configuration\n\noutput_dir = \"src/generated\"\nschema = \"schema.graphql\"\nnetwork = \"{network}\"\n{contracts_section}",
+        network = network,
+        contracts_section = contracts_section,
     );
     std::fs::write(project_dir.join("graphite.toml"), graphite_toml)?;
     println!("  Created graphite.toml");
 
     // Create subgraph.yaml (The Graph manifest)
+    let scaffold_address = contract_address
+        .as_deref()
+        .unwrap_or("0x0000000000000000000000000000000000000000");
     let subgraph_yaml = format!(
         r#"specVersion: 0.0.5
 schema:
@@ -246,7 +352,7 @@ dataSources:
     name: {name}
     network: {network}
     source:
-      address: "0x0000000000000000000000000000000000000000"
+      address: "{scaffold_address}"
       abi: {name}
       startBlock: 0
     mapping:
@@ -265,6 +371,7 @@ dataSources:
 "#,
         name = name,
         network = network,
+        scaffold_address = scaffold_address,
         name_snake = name.replace('-', "_")
     );
     std::fs::write(project_dir.join("subgraph.yaml"), subgraph_yaml)?;
@@ -310,24 +417,16 @@ pub fn handle_transfer(host: &mut impl HostFunctions, event: &ERC20TransferEvent
     std::fs::write(project_dir.join("src/lib.rs"), lib_rs)?;
     println!("  Created src/lib.rs");
 
-    // Create placeholder ABI
-    let placeholder_abi = r#"[
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "from", "type": "address" },
-      { "indexed": true, "name": "to", "type": "address" },
-      { "indexed": false, "name": "value", "type": "uint256" }
-    ],
-    "name": "Transfer",
-    "type": "event"
-  }
-]"#;
+    // Write ABI (fetched or placeholder)
     std::fs::write(
         project_dir.join(format!("abis/{}.json", name)),
-        placeholder_abi,
+        &abi_json,
     )?;
-    println!("  Created abis/{}.json (placeholder)", name);
+    if contract_address.is_some() {
+        println!("  Created abis/{}.json (from Etherscan)", name);
+    } else {
+        println!("  Created abis/{}.json (placeholder)", name);
+    }
 
     // Create .gitignore
     let gitignore = r#"/target/
@@ -384,6 +483,53 @@ pub(crate) struct ContractConfig {
     pub(crate) address: Option<String>,
     /// Block number to start indexing from (used by `graphite manifest`)
     pub(crate) start_block: Option<u64>,
+    /// Block handlers (optional filter support)
+    #[serde(default)]
+    pub(crate) block_handlers: Vec<BlockHandlerConfig>,
+    /// Call handlers — explicit function signature + handler name pairs
+    #[serde(default)]
+    pub(crate) call_handlers: Vec<CallHandlerConfig>,
+    /// If true, emit `receipt: true` in the mapping section.
+    /// Enables `ctx.receipt` in event handlers (requires graph-node ≥ 0.26).
+    #[serde(default)]
+    pub(crate) receipt: bool,
+}
+
+/// A block handler entry in graphite.toml.
+///
+/// ```toml
+/// [[contracts.block_handlers]]
+/// handler = "handleBlock"
+///
+/// [[contracts.block_handlers]]
+/// handler = "handleBlockPolled"
+/// filter = { kind = "polling", every = 10 }
+/// ```
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct BlockHandlerConfig {
+    pub(crate) handler: String,
+    pub(crate) filter: Option<BlockHandlerFilter>,
+}
+
+/// Optional filter on a block handler.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct BlockHandlerFilter {
+    pub(crate) kind: String,
+    /// Used when `kind = "polling"` — emit block every N blocks.
+    pub(crate) every: Option<u64>,
+}
+
+/// A call handler entry in graphite.toml.
+///
+/// ```toml
+/// [[contracts.call_handlers]]
+/// function = "transfer(address,uint256)"
+/// handler = "handleTransfer"
+/// ```
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct CallHandlerConfig {
+    pub(crate) function: String,
+    pub(crate) handler: String,
 }
 
 fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
@@ -517,6 +663,22 @@ fn cmd_codegen_watch(config_path: &PathBuf) -> Result<()> {
 
 fn cmd_manifest(config_path: &PathBuf, output_path: &PathBuf) -> Result<()> {
     manifest::generate(config_path, output_path)
+}
+
+fn placeholder_abi() -> String {
+    r#"[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "name": "from", "type": "address" },
+      { "indexed": true, "name": "to", "type": "address" },
+      { "indexed": false, "name": "value", "type": "uint256" }
+    ],
+    "name": "Transfer",
+    "type": "event"
+  }
+]"#
+    .to_string()
 }
 
 fn cmd_build(release: bool) -> Result<()> {

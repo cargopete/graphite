@@ -32,6 +32,14 @@ graphite init my-subgraph --network mainnet
 cd my-subgraph
 ```
 
+If you already know the contract address, pass it and the CLI will attempt to fetch the ABI from Etherscan (set `ETHERSCAN_API_KEY` in your environment):
+
+```bash
+ETHERSCAN_API_KEY=yourkey graphite init my-subgraph \
+  --from-contract 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 \
+  --network mainnet
+```
+
 This generates:
 
 ```
@@ -76,7 +84,7 @@ Drop the contract's ABI JSON into the `abis/` directory:
 cp path/to/ERC20.json abis/ERC20.json
 ```
 
-The ABI must be standard Ethereum JSON ABI format — an array of event and function descriptors. For an ERC20 Transfer event:
+The ABI must be standard Ethereum JSON ABI format. For an ERC20 Transfer event:
 
 ```json
 [
@@ -97,50 +105,27 @@ The ABI must be standard Ethereum JSON ABI format — an array of event and func
 
 ## 4. Configure the Subgraph
 
-Update `graphite.toml` to point at your ABI:
+Update `graphite.toml`:
 
 ```toml
 output_dir = "src/generated"
-schema = "schema.graphql"
+schema     = "schema.graphql"
+network    = "mainnet"
 
 [[contracts]]
-name = "ERC20"
-abi = "abis/ERC20.json"
+name        = "ERC20"
+abi         = "abis/ERC20.json"
+address     = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+start_block = 6082465
 ```
 
-Update `subgraph.yaml` with your contract address and start block:
+Then generate `subgraph.yaml` from it:
 
-```yaml
-specVersion: 0.0.4
-schema:
-  file: ./schema.graphql
-dataSources:
-  - kind: ethereum
-    name: ERC20
-    network: mainnet
-    source:
-      address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
-      abi: ERC20
-      startBlock: 6082465
-    mapping:
-      kind: wasm/assemblyscript
-      apiVersion: 0.0.6
-      language: wasm/assemblyscript
-      entities:
-        - Transfer
-      abis:
-        - name: ERC20
-          file: ./abis/ERC20.json
-      eventHandlers:
-        - event: Transfer(indexed address,indexed address,uint256)
-          handler: handle_transfer
-      file: ./target/wasm32-unknown-unknown/release/my_subgraph.wasm
+```bash
+graphite manifest
 ```
 
-Key points:
-- `language: wasm/assemblyscript` and `apiVersion: 0.0.6` are what graph-node expects. Graphite produces WASM that satisfies these constraints despite being compiled from Rust.
-- `startBlock` should be the block your contract was deployed on — indexing from block 0 is slow.
-- The `handler` name must match the `pub fn` name in your Rust code (with the `#[handler]` attribute).
+This reads `graphite.toml` and `schema.graphql` and writes a complete `subgraph.yaml`. You can re-run it any time after editing the config.
 
 ---
 
@@ -154,66 +139,87 @@ This reads `graphite.toml` and generates Rust source into `src/generated/`:
 
 ```
 src/generated/
-├── mod.rs        # Re-exports everything
-├── erc20.rs      # Event structs from the ABI (ERC20TransferEvent, etc.)
-└── schema.rs     # Entity builders from schema.graphql (Transfer, etc.)
+├── mod.rs      # Re-exports everything
+├── erc20.rs    # Event/call structs from the ABI (ERC20TransferEvent, etc.)
+└── schema.rs   # Entity builders from schema.graphql (Transfer, etc.)
 ```
 
-The generated `ERC20TransferEvent` struct has typed fields for each ABI parameter (`from`, `to`, `value`) plus graph-node metadata fields (`tx_hash`, `log_index`, `block_number`, `block_timestamp`).
+The generated `ERC20TransferEvent` struct has typed fields for each ABI parameter (`from`, `to`, `value`) decoded from raw ABI bytes.
 
 ---
 
 ## 6. Write Your Handler
 
-Edit `src/lib.rs`. A complete ERC20 Transfer handler:
+Edit `src/lib.rs`. A complete ERC20 Transfer handler using the `#[handler]` macro:
 
 ```rust
 #![cfg_attr(target_arch = "wasm32", no_std)]
-
 extern crate alloc;
-use alloc::format;
 
-use graph_as_runtime::ethereum::{FromRawEvent, RawEthereumEvent};
+use alloc::format;
+use graphite_macros::handler;
 
 mod generated;
 use generated::{ERC20TransferEvent, Transfer};
 
-fn hex_bytes(b: &[u8]) -> alloc::string::String {
+fn hex(b: &[u8]) -> alloc::string::String {
     b.iter().map(|x| format!("{:02x}", x)).collect()
 }
 
-/// Core handler logic — runs on WASM and in native tests.
-pub fn handle_transfer_impl(raw: &RawEthereumEvent) {
-    let event = match ERC20TransferEvent::from_raw_event(raw) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    let id = format!("{}-{}", hex_bytes(&event.tx_hash), hex_bytes(&event.log_index));
+#[handler]
+pub fn handle_transfer(event: &ERC20TransferEvent, ctx: &graphite::EventContext) {
+    let id = format!("{}-{}", hex(&ctx.tx_hash), hex(&ctx.log_index));
 
     Transfer::new(&id)
         .set_from(event.from.to_vec())
         .set_to(event.to.to_vec())
-        .set_value(event.value)
-        .set_block_number(event.block_number)
-        .set_timestamp(event.block_timestamp)
-        .set_transaction_hash(event.tx_hash.to_vec())
+        .set_value(event.value.clone())
+        .set_block_number(ctx.block_number.clone())
+        .set_timestamp(ctx.block_timestamp.clone())
+        .set_transaction_hash(ctx.tx_hash.to_vec())
         .save();
-}
-
-/// WASM entry point — called by graph-node for each Transfer event.
-#[cfg(target_arch = "wasm32")]
-#[unsafe(no_mangle)]
-pub extern "C" fn handle_transfer(event_ptr: i32) {
-    use graph_as_runtime::ethereum::read_ethereum_event;
-    let raw = unsafe { read_ethereum_event(event_ptr as u32) };
-    handle_transfer_impl(&raw);
 }
 ```
 
-The pattern is:
-1. `handle_transfer_impl` contains the logic. It receives a `RawEthereumEvent`, decodes it, and saves an entity. This function is callable from tests without any WASM involved.
-2. `handle_transfer` is the WASM entry point — only compiled for `wasm32`. It receives the pointer from graph-node, reads the event, and delegates to `handle_transfer_impl`.
+The `#[handler]` macro expands this into:
+- `handle_transfer_impl(event, ctx)` — the logic function, callable from tests.
+- `handle_transfer(event_ptr: i32)` — the `extern "C"` WASM entry point that graph-node calls.
+
+### Handler Types
+
+| Attribute | Called for | Signature |
+|-----------|-----------|-----------|
+| `#[handler]` | Ethereum events | `fn handle_*(event: &FooEvent, ctx: &EventContext)` |
+| `#[handler(call)]` | Contract function calls | `fn handle_*(call: &FooCall, ctx: &CallContext)` |
+| `#[handler(block)]` | Every block | `fn handle_*(block: &EthereumBlock, ctx: &EventContext)` |
+| `#[handler(file)]` | IPFS file content | `fn handle_*(content: &[u8], ctx: &FileContext)` |
+
+### EventContext Fields
+
+The `ctx` parameter carries the full block and transaction context:
+
+```rust
+pub struct EventContext {
+    pub address:               [u8; 20],        // contract address
+    pub log_index:             Vec<u8>,          // log index (LE BigInt bytes)
+    pub block_hash:            [u8; 32],
+    pub block_number:          Vec<u8>,          // LE BigInt bytes
+    pub block_timestamp:       Vec<u8>,
+    pub block_gas_used:        Vec<u8>,
+    pub block_gas_limit:       Vec<u8>,
+    pub block_difficulty:      Vec<u8>,
+    pub block_base_fee_per_gas: Option<Vec<u8>>, // EIP-1559
+    pub tx_hash:               [u8; 32],
+    pub tx_index:              Vec<u8>,
+    pub tx_from:               [u8; 20],
+    pub tx_to:                 Option<[u8; 20]>,
+    pub tx_value:              Vec<u8>,
+    pub tx_gas_limit:          Vec<u8>,
+    pub tx_gas_price:          Vec<u8>,
+    pub tx_nonce:              Vec<u8>,
+    pub receipt:               Option<TransactionReceipt>, // if `receipt: true` in manifest
+}
+```
 
 ---
 
@@ -229,42 +235,35 @@ No Docker, no PostgreSQL, no graph-node. Tests use an in-process mock store:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graph_as_runtime::ethereum::{EthereumValue, EventParam};
-    use graphite::mock;
+    use graph_as_runtime::ethereum::{EthereumValue, EventParam, FromRawEvent, RawEthereumEvent};
+    use graph_as_runtime::native_store;
 
-    fn mock_transfer() -> RawEthereumEvent {
+    fn mock_raw() -> RawEthereumEvent {
         RawEthereumEvent {
-            address: [0x00; 20],
-            log_index: vec![0],
-            block_number: vec![1, 0, 0, 0],
-            block_timestamp: vec![100, 0, 0, 0],
             tx_hash: [0xab; 32],
             params: alloc::vec![
-                EventParam { name: "from".into(), value: EthereumValue::Address([0xaa; 20]) },
-                EventParam { name: "to".into(),   value: EthereumValue::Address([0xbb; 20]) },
-                EventParam { name: "value".into(), value: EthereumValue::Uint(alloc::vec![100, 0, 0, 0, 0, 0, 0, 0]) },
+                EventParam { name: "from".into(),  value: EthereumValue::Address([0xaa; 20]) },
+                EventParam { name: "to".into(),    value: EthereumValue::Address([0xbb; 20]) },
+                EventParam { name: "value".into(), value: EthereumValue::Uint(alloc::vec![100]) },
             ],
+            ..Default::default()
         }
     }
 
     #[test]
     fn transfer_creates_entity() {
-        mock::reset();
-        handle_transfer_impl(&mock_transfer());
+        native_store::reset();
 
-        let tx_hex = "ab".repeat(32);
-        let id = format!("{}-00", tx_hex);
+        let event = ERC20TransferEvent::from_raw_event(&mock_raw()).unwrap();
+        let ctx = graphite::EventContext { tx_hash: [0xab; 32], ..Default::default() };
+        handle_transfer_impl(&event, &ctx);
 
-        assert!(mock::has_entity("Transfer", &id));
-        mock::assert_entity("Transfer", &id)
-            .field_bytes("from", &[0xaa; 20])
-            .field_bytes("to", &[0xbb; 20])
-            .field_exists("value");
+        assert_eq!(native_store::with_store(|s| s.entity_count("Transfer")), 1);
     }
 }
 ```
 
-`mock::reset()` clears the in-memory store between tests. `mock::assert_entity` returns a fluent assertion builder.
+`native_store::reset()` clears the in-memory store between tests. Use `native_store::with_store` to inspect results.
 
 ---
 
@@ -311,8 +310,79 @@ The CLI uploads the WASM, schema, and ABI to IPFS, rewrites the manifest with IP
 
 ---
 
+## Advanced Features
+
+### Dynamic Data Sources (Factory Pattern)
+
+Declare a template in `graphite.toml`:
+
+```toml
+[[templates]]
+name = "Pair"
+abi  = "abis/Pair.json"
+```
+
+In your factory handler, create a new data source instance:
+
+```rust
+use graphite::data_source;
+
+#[handler]
+pub fn handle_pair_created(event: &FactoryPairCreatedEvent, ctx: &graphite::EventContext) {
+    let pair_addr = graphite::primitives::Address::from(event.pair);
+    data_source::create(host, "Pair", pair_addr);
+}
+```
+
+In the template handler, introspect the current data source:
+
+```rust
+#[handler]
+pub fn handle_swap(event: &PairSwapEvent, ctx: &graphite::EventContext) {
+    let addr   = data_source::address(host);
+    let net    = data_source::network(host);
+    let id_str = data_source::id(host);
+    // ...
+}
+```
+
+### Crypto Utilities
+
+All crypto runs natively — no host calls, works in `cargo test`:
+
+```rust
+use graphite::crypto;
+
+let hash = crypto::keccak256(b"hello");
+let sha  = crypto::sha256(b"hello");
+let sel  = crypto::selector("transfer(address,uint256)"); // → [0xa9, 0x05, 0x9c, 0xbb]
+let addr = crypto::secp256k1_recover(&msg_hash, &r, &s, v);
+```
+
+### ABI Encoding
+
+```rust
+use graphite::ethereum::{self, EthereumValue};
+
+let encoded = ethereum::encode(&EthereumValue::Uint(value_bytes)).unwrap();
+```
+
+### Logging
+
+```rust
+use graphite::{log_info, log_warning, nonfatal_error};
+
+log_info!(host, "processing token {}", token_id);
+nonfatal_error!(host, "unexpected zero address — skipping");
+return;
+```
+
+---
+
 ## What's Next
 
 - [examples/erc20](../examples/erc20/) — full ERC20 reference, live on The Graph Studio (Arbitrum One).
-- [examples/erc721](../examples/erc721/) — NFT transfer indexing, also live on Studio.
-- For anything the CLI doesn't cover, `cargo build` and `graphite deploy` can be used independently.
+- [examples/erc721](../examples/erc721/) — NFT transfer + approval indexing.
+- [examples/erc1155](../examples/erc1155/) — multi-token: TransferSingle, TransferBatch, URI.
+- [examples/multi-source](../examples/multi-source/) — multiple contracts in one subgraph.
+- [examples/file-ds](../examples/file-ds/) — IPFS file data source handler.

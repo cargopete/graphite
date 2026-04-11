@@ -221,11 +221,22 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                     Err(_) => return,
                 };
                 let ctx = graphite::CallContext {
-                    block_number:    raw.block_number.clone(),
-                    block_timestamp: raw.block_timestamp.clone(),
-                    tx_hash:         raw.tx_hash,
-                    address:         raw.address,
-                    from:            raw.from,
+                    address:                  raw.address,
+                    block_hash:               raw.block_hash,
+                    block_number:             raw.block_number.clone(),
+                    block_timestamp:          raw.block_timestamp.clone(),
+                    block_gas_used:           raw.block_gas_used.clone(),
+                    block_gas_limit:          raw.block_gas_limit.clone(),
+                    block_difficulty:         raw.block_difficulty.clone(),
+                    block_base_fee_per_gas:   raw.block_base_fee_per_gas.clone(),
+                    tx_hash:                  raw.tx_hash,
+                    tx_index:                 raw.tx_index.clone(),
+                    from:                     raw.from,
+                    tx_to:                    raw.tx_to,
+                    tx_value:                 raw.tx_value.clone(),
+                    tx_gas_limit:             raw.tx_gas_limit.clone(),
+                    tx_gas_price:             raw.tx_gas_price.clone(),
+                    tx_nonce:                 raw.tx_nonce.clone(),
                 };
                 #impl_name(&#param_name, &ctx);
             }
@@ -243,12 +254,24 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                     Err(_) => return 1,
                 };
                 let ctx = graphite::EventContext {
-                    block_number:    raw.block_number.clone(),
-                    block_timestamp: raw.block_timestamp.clone(),
-                    tx_hash:         raw.tx_hash,
-                    log_index:       raw.log_index.clone(),
-                    address:         raw.address,
-                    receipt:         raw.receipt,
+                    address:                  raw.address,
+                    log_index:                raw.log_index.clone(),
+                    block_hash:               raw.block_hash,
+                    block_number:             raw.block_number.clone(),
+                    block_timestamp:          raw.block_timestamp.clone(),
+                    block_gas_used:           raw.block_gas_used.clone(),
+                    block_gas_limit:          raw.block_gas_limit.clone(),
+                    block_difficulty:         raw.block_difficulty.clone(),
+                    block_base_fee_per_gas:   raw.block_base_fee_per_gas.clone(),
+                    tx_hash:                  raw.tx_hash,
+                    tx_index:                 raw.tx_index.clone(),
+                    tx_from:                  raw.tx_from,
+                    tx_to:                    raw.tx_to,
+                    tx_value:                 raw.tx_value.clone(),
+                    tx_gas_limit:             raw.tx_gas_limit.clone(),
+                    tx_gas_price:             raw.tx_gas_price.clone(),
+                    tx_nonce:                 raw.tx_nonce.clone(),
+                    receipt:                  raw.receipt,
                 };
                 #impl_name(&#param_name, &ctx);
                 0
@@ -268,12 +291,24 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                     Err(_) => return,
                 };
                 let ctx = graphite::EventContext {
-                    block_number:    raw.block_number.clone(),
-                    block_timestamp: raw.block_timestamp.clone(),
-                    tx_hash:         raw.tx_hash,
-                    log_index:       raw.log_index.clone(),
-                    address:         raw.address,
-                    receipt:         raw.receipt,
+                    address:                  raw.address,
+                    log_index:                raw.log_index.clone(),
+                    block_hash:               raw.block_hash,
+                    block_number:             raw.block_number.clone(),
+                    block_timestamp:          raw.block_timestamp.clone(),
+                    block_gas_used:           raw.block_gas_used.clone(),
+                    block_gas_limit:          raw.block_gas_limit.clone(),
+                    block_difficulty:         raw.block_difficulty.clone(),
+                    block_base_fee_per_gas:   raw.block_base_fee_per_gas.clone(),
+                    tx_hash:                  raw.tx_hash,
+                    tx_index:                 raw.tx_index.clone(),
+                    tx_from:                  raw.tx_from,
+                    tx_to:                    raw.tx_to,
+                    tx_value:                 raw.tx_value.clone(),
+                    tx_gas_limit:             raw.tx_gas_limit.clone(),
+                    tx_gas_price:             raw.tx_gas_price.clone(),
+                    tx_nonce:                 raw.tx_nonce.clone(),
+                    receipt:                  raw.receipt,
                 };
                 #impl_name(&#param_name, &ctx);
             }

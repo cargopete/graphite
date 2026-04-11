@@ -35,6 +35,10 @@ thread_local! {
     static IPFS_CONTENT: RefCell<HashMap<String, Vec<u8>>> = RefCell::new(HashMap::new());
     /// Thread-local ENS registry for AS-ABI-style handlers. See `set_ens_name`.
     static ENS_NAMES: RefCell<HashMap<[u8; 20], String>> = RefCell::new(HashMap::new());
+    /// Thread-local data source context. See `set_data_source_context`.
+    static DATA_SOURCE_CONTEXT: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    /// Data sources created by hostless `data_source::create_file` etc. in #[handler] code.
+    static CREATED_DATA_SOURCES: RefCell<Vec<(String, Vec<String>)>> = RefCell::new(Vec::new());
 }
 
 // ============================================================================
@@ -47,6 +51,8 @@ pub fn reset() {
     ETH_CALLS_MADE.with(|c| c.borrow_mut().clear());
     IPFS_CONTENT.with(|c| c.borrow_mut().clear());
     ENS_NAMES.with(|c| c.borrow_mut().clear());
+    DATA_SOURCE_CONTEXT.with(|c| c.borrow_mut().clear());
+    CREATED_DATA_SOURCES.with(|c| c.borrow_mut().clear());
 }
 
 /// Register mock IPFS content for the given CID.
@@ -68,6 +74,67 @@ pub fn set_ens_name(address: [u8; 20], name: impl Into<String>) {
 /// Look up a mocked ENS name — used by `graphite::ens::name_by_address` on native.
 pub(crate) fn get_ens_name(address: &[u8; 20]) -> Option<String> {
     ENS_NAMES.with(|c| c.borrow().get(address).cloned())
+}
+
+/// Record a data source creation from hostless `data_source::create_file` etc.
+/// Used by `graphite::data_source` on native when there is no host reference.
+pub(crate) fn record_data_source_created(name: &str, params: &[String]) {
+    CREATED_DATA_SOURCES.with(|c| {
+        c.borrow_mut().push((name.to_string(), params.to_vec()));
+    });
+}
+
+/// Return all data sources created via the hostless API during this test.
+///
+/// Each entry is `(template_name, params)`. For `create_file`, `params[0]` is the IPFS CID.
+/// Cleared by `mock::reset()`.
+pub fn get_created_data_sources() -> Vec<(String, Vec<String>)> {
+    CREATED_DATA_SOURCES.with(|c| c.borrow().clone())
+}
+
+/// Assert that a file/ipfs data source was created for the given template and CID.
+///
+/// # Panics
+/// Panics if no matching `create_file` call was recorded.
+pub fn assert_file_data_source_created(template: &str, cid: &str) {
+    let found = CREATED_DATA_SOURCES.with(|c| {
+        c.borrow()
+            .iter()
+            .any(|(n, params)| n == template && params.first().map(|p| p == cid).unwrap_or(false))
+    });
+    assert!(
+        found,
+        "Expected file data source '{}' for CID '{}' to be created, but it wasn't.\nCreated: {:?}",
+        template,
+        cid,
+        CREATED_DATA_SOURCES.with(|c| c.borrow().clone()),
+    );
+}
+
+/// Retrieve a single string value from the mock data source context.
+pub(crate) fn get_data_source_context_string(key: &str) -> Option<String> {
+    DATA_SOURCE_CONTEXT.with(|c| c.borrow().get(key).cloned())
+}
+
+/// Set a key-value pair in the mock data source context.
+///
+/// Use before calling a handler that reads `dataSource.context()`.
+/// Cleared by `mock::reset()`.
+pub fn set_data_source_context(key: impl Into<String>, value: impl Into<String>) {
+    DATA_SOURCE_CONTEXT.with(|c| {
+        c.borrow_mut().insert(key.into(), value.into());
+    });
+}
+
+/// Retrieve the mock data source context as an entity.
+pub(crate) fn get_data_source_context() -> crate::store::Entity {
+    DATA_SOURCE_CONTEXT.with(|c| {
+        let mut entity = crate::store::Entity::new();
+        for (k, v) in c.borrow().iter() {
+            entity.set(k.clone(), v.clone());
+        }
+        entity
+    })
 }
 
 /// Return the number of stored entities of the given type.
@@ -316,6 +383,12 @@ pub struct MockHost {
     pub current_address: Address,
     /// Current network name.
     pub current_network: String,
+
+    /// Data source context (string key-value pairs).
+    pub current_context: HashMap<String, String>,
+
+    /// Current data source ID.
+    pub current_id: String,
 }
 
 impl MockHost {
@@ -411,6 +484,11 @@ impl HostFunctions for MockHost {
         })
     }
 
+    fn store_get_in_block(&self, entity_type: &str, id: &str) -> Option<Entity> {
+        // Native tests have no block/committed distinction — delegate to store_get.
+        self.store_get(entity_type, id)
+    }
+
     fn store_remove(&mut self, entity_type: &str, id: &str) {
         native_store::with_store_mut(|s| s.remove_entity(entity_type, id));
     }
@@ -473,12 +551,36 @@ impl HostFunctions for MockHost {
             .push((name.to_string(), params.to_vec()));
     }
 
+    fn data_source_create_with_context(&mut self, name: &str, params: &[String], context: Entity) {
+        self.created_data_sources
+            .push((name.to_string(), params.to_vec()));
+        // Store context so the next data_source_context() call returns it.
+        self.current_context.clear();
+        for (k, v) in context.iter() {
+            if let Value::String(s) = v {
+                self.current_context.insert(k.clone(), s.clone());
+            }
+        }
+    }
+
     fn data_source_address(&self) -> Address {
         self.current_address
     }
 
     fn data_source_network(&self) -> String {
         self.current_network.clone()
+    }
+
+    fn data_source_context(&self) -> Entity {
+        let mut entity = Entity::new();
+        for (k, v) in &self.current_context {
+            entity.set(k.clone(), v.clone());
+        }
+        entity
+    }
+
+    fn data_source_id(&self) -> String {
+        self.current_id.clone()
     }
 }
 
