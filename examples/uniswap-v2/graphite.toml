@@ -1,0 +1,15 @@
+# Graphite subgraph configuration — Uniswap V2
+
+output_dir = "src/generated"
+schema = "schema.graphql"
+network = "mainnet"
+
+[[contracts]]
+name = "Factory"
+abi = "abis/Factory.json"
+address = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6"
+start_block = 10000835
+
+[[templates]]
+name = "Pair"
+abi = "abis/Pair.json"

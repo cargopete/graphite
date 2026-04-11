@@ -39,6 +39,8 @@ thread_local! {
     static DATA_SOURCE_CONTEXT: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
     /// Data sources created by hostless `data_source::create_file` etc. in #[handler] code.
     static CREATED_DATA_SOURCES: RefCell<Vec<(String, Vec<String>)>> = RefCell::new(Vec::new());
+    /// Current data source address, returned by `data_source::address_current()` on native.
+    static CURRENT_ADDRESS: RefCell<[u8; 20]> = RefCell::new([0u8; 20]);
 }
 
 // ============================================================================
@@ -53,6 +55,7 @@ pub fn reset() {
     ENS_NAMES.with(|c| c.borrow_mut().clear());
     DATA_SOURCE_CONTEXT.with(|c| c.borrow_mut().clear());
     CREATED_DATA_SOURCES.with(|c| c.borrow_mut().clear());
+    CURRENT_ADDRESS.with(|c| *c.borrow_mut() = [0u8; 20]);
 }
 
 /// Register mock IPFS content for the given CID.
@@ -109,6 +112,45 @@ pub fn assert_file_data_source_created(template: &str, cid: &str) {
         cid,
         CREATED_DATA_SOURCES.with(|c| c.borrow().clone()),
     );
+}
+
+/// Assert that an ethereum/contract data source was created for the given template and address.
+///
+/// Checks the thread-local `CREATED_DATA_SOURCES` list populated by
+/// `data_source::create_contract`. Cleared by `mock::reset()`.
+///
+/// # Panics
+/// Panics if no matching creation was recorded.
+pub fn assert_contract_data_source_created(template: &str, address: [u8; 20]) {
+    let hex = format!(
+        "0x{}",
+        address.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+    );
+    let found = CREATED_DATA_SOURCES.with(|c| {
+        c.borrow()
+            .iter()
+            .any(|(n, params)| n == template && params.first().map(|p| p == &hex).unwrap_or(false))
+    });
+    assert!(
+        found,
+        "Expected contract data source '{}' for address {} to be created, but it wasn't.\nCreated: {:?}",
+        template,
+        hex,
+        CREATED_DATA_SOURCES.with(|c| c.borrow().clone()),
+    );
+}
+
+/// Set the mock data source address returned by `data_source::address_current()`.
+///
+/// Use in tests that exercise handlers reading their data source address.
+/// Cleared by `mock::reset()`.
+pub fn set_current_address(address: [u8; 20]) {
+    CURRENT_ADDRESS.with(|c| *c.borrow_mut() = address);
+}
+
+/// Return the current mock data source address — used by `data_source::address_current()` on native.
+pub(crate) fn get_current_address() -> [u8; 20] {
+    CURRENT_ADDRESS.with(|c| *c.borrow())
 }
 
 /// Retrieve a single string value from the mock data source context.

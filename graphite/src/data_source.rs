@@ -176,6 +176,33 @@ pub fn context_string(key: &str) -> Option<alloc::string::String> {
     }
 }
 
+/// Instantiate an ethereum/contract data source template for `address` (hostless).
+///
+/// Call from a `#[handler]` factory event handler to track a newly-deployed
+/// contract. `name` must match a `templates:` entry declared in the manifest.
+///
+/// In WASM builds, calls `dataSource.create` directly.
+/// In native tests, records the creation in the thread-local mock (cleared by
+/// `mock::reset()`). Inspect via `mock::get_created_data_sources()` or
+/// `mock::assert_contract_data_source_created`.
+pub fn create_contract(name: &str, address: [u8; 20]) {
+    let hex = address_to_hex(Address::from(address));
+    #[cfg(target_arch = "wasm32")]
+    {
+        use graph_as_runtime::{
+            as_types::{new_asc_string, new_asc_string_array},
+            ffi,
+        };
+        let name_ptr = new_asc_string(name);
+        let params_ptr = new_asc_string_array(&[&hex]);
+        unsafe { ffi::data_source_create(name_ptr, params_ptr) };
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        crate::mock::record_data_source_created(name, &[hex]);
+    }
+}
+
 /// Return the unique identifier of the current data source (hostless).
 ///
 /// For use in `#[handler]` and `#[handler(file)]` functions.
@@ -208,7 +235,7 @@ pub fn address_current() -> [u8; 20] {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        [0u8; 20]
+        crate::mock::get_current_address()
     }
 }
 

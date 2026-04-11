@@ -1,0 +1,22 @@
+# Uniswap V2 — schema
+#
+# Pool: one entity per pair contract, keyed by pair address (hex).
+# Swap: one entity per Swap event, keyed by tx-hash + log-index.
+
+type Pool @entity {
+  id: ID!
+  token0: Bytes!
+  token1: Bytes!
+  swapCount: BigInt!
+}
+
+type Swap @entity {
+  id: ID!
+  pool: String!
+  amount0In: BigInt!
+  amount1In: BigInt!
+  amount0Out: BigInt!
+  amount1Out: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}

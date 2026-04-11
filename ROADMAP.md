@@ -105,9 +105,11 @@ Current state: **feature parity achieved.** All graph-ts host functions are impl
 | File data source example | ✅ done. `examples/file-ds/` — ERC721 transfer handler spawns IPFS file data source; `#[handler(file)]` metadata handler parses JSON and updates entity. Four native tests. |
 | Log capture fix (`testing::MockHost`) | ✅ done. `logs` field changed to `RefCell<Vec<(LogLevel, String)>>` so `log()` can write through `&self`. `get_logs()`, `logs_at()` helpers added. |
 | `receipt: true` manifest generation | ✅ done. `receipt = true` in `graphite.toml` `[[contracts]]` section emits `receipt: true` in the mapping. |
-| Hostless data source API | ✅ done. `data_source::create_file`, `create_file_with_context`, `context_current`, `context_string`, `id_current`, `address_current`, `network_current` — all cfg-dispatch (FFI on WASM, thread-local on native). |
-| CI: all examples in WASM build | ✅ done. CI builds ERC20, ERC721, ERC1155, multi-source, and file-ds. |
+| Hostless data source API | ✅ done. `data_source::create_file`, `create_file_with_context`, `create_contract`, `context_current`, `context_string`, `id_current`, `address_current`, `network_current` — all cfg-dispatch (FFI on WASM, thread-local on native). |
+| CI: all examples in WASM build | ✅ done. CI builds ERC20, ERC721, ERC1155, multi-source, file-ds, and uniswap-v2. |
 | `examples/file-ds` in workspace | ✅ done. Added to `Cargo.toml` workspace members; all tests run in `cargo test --workspace`. |
+| Uniswap V2 factory example | ✅ done. `examples/uniswap-v2/` — Factory + Pair template pattern. `handle_pair_created` creates `Pool` entity and calls `data_source::create_contract("Pair", addr)`. `handle_swap` records `Swap` entity and increments `Pool.swapCount` (LE-byte arithmetic). `mock::set_current_address` and `mock::assert_contract_data_source_created` added. Four native tests. |
+| `graphite init` scaffold fix | ✅ done. Generated `lib.rs` now uses correct `#[handler]` pattern (no host param, builder-style entity, `_impl` convention, `no_std` boilerplate) matching the real examples. Includes a native test. |
 
 ---
 

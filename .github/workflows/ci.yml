@@ -93,6 +93,15 @@ jobs:
             -o target/wasm32-unknown-unknown/release/file_ds_subgraph.opt.wasm
           ls -lh target/wasm32-unknown-unknown/release/file_ds_subgraph.opt.wasm
 
+      - name: Build Uniswap V2 WASM
+        run: |
+          cargo build -p uniswap-v2 --target wasm32-unknown-unknown --release
+          wasm-opt \
+            --enable-bulk-memory --llvm-memory-copy-fill-lowering -Oz \
+            target/wasm32-unknown-unknown/release/uniswap_v2.wasm \
+            -o target/wasm32-unknown-unknown/release/uniswap_v2.opt.wasm
+          ls -lh target/wasm32-unknown-unknown/release/uniswap_v2.opt.wasm
+
   fmt-clippy:
     name: Fmt + Clippy
     runs-on: ubuntu-latest

@@ -39,7 +39,7 @@ use generated::{ERC20TransferEvent, Transfer};
 
 #[handler]
 pub fn handle_transfer(event: &ERC20TransferEvent, ctx: &graphite::EventContext) {
-    let id = format!("{}-{}", hex(&ctx.tx_hash), hex(&ctx.log_index));
+    let id = format!("{}-{}", hex(&event.tx_hash), hex(&event.log_index));
     Transfer::new(&id)
         .set_from(event.from.to_vec())
         .set_to(event.to.to_vec())
@@ -57,11 +57,11 @@ fn hex(b: &[u8]) -> alloc::string::String {
 mod tests {
     use super::*;
     use graph_as_runtime::ethereum::{EthereumValue, EventParam, FromRawEvent, RawEthereumEvent};
-    use graph_as_runtime::native_store;
+    use graphite::mock;
 
     #[test]
     fn transfer_creates_entity() {
-        native_store::reset();
+        mock::reset();
         let raw = RawEthereumEvent {
             tx_hash: [0xab; 32],
             params: alloc::vec![
@@ -71,11 +71,12 @@ mod tests {
             ],
             ..Default::default()
         };
-        let event = ERC20TransferEvent::from_raw_event(&raw).unwrap();
-        let ctx = graphite::EventContext { tx_hash: [0xab; 32], ..Default::default() };
-        handle_transfer_impl(&event, &ctx);
+        handle_transfer_impl(
+            &ERC20TransferEvent::from_raw_event(&raw).unwrap(),
+            &graphite::EventContext::default(),
+        );
 
-        assert_eq!(native_store::with_store(|s| s.entity_count("Transfer")), 1);
+        assert!(mock::has_entity("Transfer", &format!("{}-00", "ab".repeat(32))));
     }
 }
 ```
@@ -132,7 +133,7 @@ graphite deploy \
 Install the CLI:
 
 ```bash
-cargo install --git https://github.com/cargopete/graphite.git graphite-cli
+cargo install graphite-cli
 ```
 
 ### Block and Call Handlers in graphite.toml
@@ -175,6 +176,7 @@ handler  = "handleTransfer"
 - [examples/erc1155](examples/erc1155/) — ERC1155 multi-token: TransferSingle, TransferBatch, URI
 - [examples/multi-source](examples/multi-source/) — Multiple contracts in one subgraph
 - [examples/file-ds](examples/file-ds/) — File data source (IPFS content handler)
+- [examples/uniswap-v2](examples/uniswap-v2/) — Factory + template pattern: tracks pairs and swaps
 
 ## Documentation
 

@@ -1,0 +1,15 @@
+[package]
+name = "uniswap-v2"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+graphite.workspace = true
+graphite-macros.workspace = true
+graph-as-runtime.workspace = true
+
+[dev-dependencies]
+graphite.workspace = true
