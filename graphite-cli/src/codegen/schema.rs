@@ -37,7 +37,7 @@ fn generate_schema_entities_from_str(schema_str: &str) -> Result<String> {
     writeln!(output)?;
     writeln!(output, "extern crate alloc;")?;
     writeln!(output)?;
-    writeln!(output, "use alloc::string::String;")?;
+    writeln!(output, "use alloc::string::{{String, ToString}};")?;
     writeln!(output, "use alloc::vec::Vec;")?;
     writeln!(output)?;
 

@@ -6,7 +6,7 @@
 
 use crate::primitives::{Address, BigInt, Bytes};
 use crate::store::Entity;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 /// The core trait abstracting all graph-node host functions.
 ///

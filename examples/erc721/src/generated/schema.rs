@@ -8,7 +8,7 @@
 
 extern crate alloc;
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 /// Generated from `Token` entity in schema.graphql.

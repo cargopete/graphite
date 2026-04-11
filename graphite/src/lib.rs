@@ -41,6 +41,7 @@ pub mod host;
 pub mod json;
 pub mod primitives;
 pub mod store;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
 
 /// Mock host for native `cargo test` — no WASM, no graph-node required.

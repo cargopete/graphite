@@ -7,9 +7,9 @@ edition.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-graphite.workspace = true
+graphite = { package = "graphite-sdk", path = "../../graphite", default-features = false }
 graphite-macros.workspace = true
 graph-as-runtime.workspace = true
 
 [dev-dependencies]
-graphite.workspace = true
+graphite = { package = "graphite-sdk", path = "../../graphite", features = ["std"] }

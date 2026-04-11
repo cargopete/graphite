@@ -131,7 +131,7 @@ unsafe fn read_string(ptr: u32) -> String {
 
 /// Read a JSONValue AscEnum at `ptr` and recursively decode it.
 #[cfg(target_arch = "wasm32")]
-pub(crate) unsafe fn read_json_value(ptr: u32) -> JsonValue {
+pub unsafe fn read_json_value(ptr: u32) -> JsonValue {
     if ptr == 0 {
         return JsonValue::Null;
     }

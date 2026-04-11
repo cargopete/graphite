@@ -194,6 +194,13 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     // The impl function gets the original name suffixed with _impl.
     let impl_name = syn::Ident::new(&format!("{}_impl", fn_name), fn_name.span());
 
+    // Strip leading & from the param type for FromRawEvent/FromRawCall trait bounds.
+    // Users write `event: &MyEvent` but the trait is impl'd on `MyEvent`, not `&MyEvent`.
+    let event_base_type: &syn::Type = match param_type.as_ref() {
+        syn::Type::Reference(r) => &r.elem,
+        other => other,
+    };
+
     // Build the WASM entry point. Event handlers return void; block handlers return i32;
     // call handlers return void; file handlers return void.
     let wasm_entry = if is_file_handler {
@@ -205,7 +212,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                     graph_as_runtime::store_read::read_asc_bytes(content_ptr as u32)
                 };
                 let ctx = graphite::FileContext::new();
-                #impl_name(&content, &ctx);
+                #impl_name(content, &ctx);
             }
         }
     } else if is_call_handler {
@@ -216,7 +223,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let raw = unsafe {
                     graph_as_runtime::ethereum::read_ethereum_call(call_ptr as u32)
                 };
-                let #param_name = match <#param_type as graph_as_runtime::ethereum::FromRawCall>::from_raw_call(&raw) {
+                let #param_name = match <#event_base_type as graph_as_runtime::ethereum::FromRawCall>::from_raw_call(&raw) {
                     Ok(c) => c,
                     Err(_) => return,
                 };
@@ -249,7 +256,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let raw = unsafe {
                     graph_as_runtime::ethereum::read_ethereum_event(event_ptr as u32)
                 };
-                let #param_name = match <#param_type as graph_as_runtime::ethereum::FromRawEvent>::from_raw_event(&raw) {
+                let #param_name = match <#event_base_type as graph_as_runtime::ethereum::FromRawEvent>::from_raw_event(&raw) {
                     Ok(e) => e,
                     Err(_) => return 1,
                 };
@@ -286,7 +293,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let raw = unsafe {
                     graph_as_runtime::ethereum::read_ethereum_event(event_ptr as u32)
                 };
-                let #param_name = match <#param_type as graph_as_runtime::ethereum::FromRawEvent>::from_raw_event(&raw) {
+                let #param_name = match <#event_base_type as graph_as_runtime::ethereum::FromRawEvent>::from_raw_event(&raw) {
                     Ok(e) => e,
                     Err(_) => return,
                 };

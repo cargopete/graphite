@@ -3,7 +3,7 @@
 //! These types wrap and extend `alloy-primitives` with additional
 //! functionality needed for subgraph mappings.
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt;
 use core::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Rem, Shl, Shr, Sub};
