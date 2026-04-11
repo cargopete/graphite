@@ -5,6 +5,7 @@
 //! are emitted when declared in graphite.toml.
 
 use anyhow::{Context, Result};
+use heck::ToSnakeCase;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -21,10 +22,7 @@ pub fn generate(config_path: &PathBuf, output_path: &PathBuf) -> Result<()> {
 
     // Discover crate name from Cargo.toml (for the WASM file path).
     let crate_name = read_crate_name().unwrap_or_else(|_| "subgraph".to_string());
-    let wasm_path = format!(
-        "./target/wasm32-unknown-unknown/release/{}.wasm",
-        crate_name.replace('-', "_")
-    );
+    let wasm_path = format!("./build/{}.wasm", crate_name.replace('-', "_"));
 
     // Collect entity names from schema.graphql (for the `entities:` list).
     let entity_names = config
@@ -121,7 +119,7 @@ fn write_datasource(
         writeln!(out, "      eventHandlers:").unwrap();
         for ev in events {
             writeln!(out, "        - event: {}", ev.signature).unwrap();
-            writeln!(out, "          handler: handle{}", ev.name).unwrap();
+            writeln!(out, "          handler: handle_{}", ev.name.to_snake_case()).unwrap();
         }
     }
 

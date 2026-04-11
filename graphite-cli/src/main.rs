@@ -760,7 +760,6 @@ fn cmd_build(release: bool) -> Result<()> {
 
     // Find the built wasm file
     let profile = if release { "release" } else { "debug" };
-    let target_dir = PathBuf::from("target").join(TARGET).join(profile);
 
     // Get crate name from Cargo.toml
     let cargo_toml = std::fs::read_to_string("Cargo.toml").context("Failed to read Cargo.toml")?;
@@ -771,7 +770,29 @@ fn cmd_build(release: bool) -> Result<()> {
         .map(|s| s.trim().trim_matches('"').replace('-', "_"))
         .context("Could not find crate name in Cargo.toml")?;
 
-    let wasm_file = target_dir.join(format!("{}.wasm", crate_name));
+    // In a workspace, cargo places output in the workspace root's target/.
+    // Walk up from cwd until we find a target/<profile> directory that contains
+    // the wasm file, or fall back to local target/.
+    let wasm_name = format!("{}.wasm", crate_name);
+    let wasm_file = {
+        let rel = PathBuf::from("target").join(TARGET).join(profile).join(&wasm_name);
+        if rel.exists() {
+            rel
+        } else {
+            // Try workspace root (up to 4 levels)
+            let mut found = None;
+            let mut dir = std::env::current_dir()?;
+            for _ in 0..4 {
+                if !dir.pop() { break; }
+                let candidate = dir.join("target").join(TARGET).join(profile).join(&wasm_name);
+                if candidate.exists() {
+                    found = Some(candidate);
+                    break;
+                }
+            }
+            found.unwrap_or(rel)
+        }
+    };
 
     if !wasm_file.exists() {
         anyhow::bail!("WASM file not found: {}", wasm_file.display());
