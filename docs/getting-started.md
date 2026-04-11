@@ -18,9 +18,9 @@ This guide walks you through building and deploying a Rust subgraph from scratch
   brew install binaryen
   ```
 - **A running graph-node** — local Docker setup or The Graph hosted service. For local development, the [graph-node Docker Compose](https://github.com/graphprotocol/graph-node/tree/master/docker) setup is the quickest path.
-- **graphite-cli** — install from the repo:
+- **graphite-cli** — install from crates.io:
   ```bash
-  cargo install --git https://github.com/cargopete/graphite.git graphite-cli
+  cargo install graphite-cli
   ```
 
 ---
@@ -236,7 +236,7 @@ No Docker, no PostgreSQL, no graph-node. Tests use an in-process mock store:
 mod tests {
     use super::*;
     use graph_as_runtime::ethereum::{EthereumValue, EventParam, FromRawEvent, RawEthereumEvent};
-    use graph_as_runtime::native_store;
+    use graphite::mock;
 
     fn mock_raw() -> RawEthereumEvent {
         RawEthereumEvent {
@@ -252,18 +252,17 @@ mod tests {
 
     #[test]
     fn transfer_creates_entity() {
-        native_store::reset();
+        mock::reset();
 
         let event = ERC20TransferEvent::from_raw_event(&mock_raw()).unwrap();
-        let ctx = graphite::EventContext { tx_hash: [0xab; 32], ..Default::default() };
-        handle_transfer_impl(&event, &ctx);
+        handle_transfer_impl(&event, &graphite::EventContext::default());
 
-        assert_eq!(native_store::with_store(|s| s.entity_count("Transfer")), 1);
+        assert_eq!(mock::entity_count("Transfer"), 1);
     }
 }
 ```
 
-`native_store::reset()` clears the in-memory store between tests. Use `native_store::with_store` to inspect results.
+`mock::reset()` clears the in-memory store between tests. Use `mock::has_entity`, `mock::entity_count`, and `mock::assert_entity` to inspect results.
 
 ---
 
@@ -329,8 +328,7 @@ use graphite::data_source;
 
 #[handler]
 pub fn handle_pair_created(event: &FactoryPairCreatedEvent, ctx: &graphite::EventContext) {
-    let pair_addr = graphite::primitives::Address::from(event.pair);
-    data_source::create(host, "Pair", pair_addr);
+    data_source::create_contract("Pair", event.pair);
 }
 ```
 
@@ -339,12 +337,14 @@ In the template handler, introspect the current data source:
 ```rust
 #[handler]
 pub fn handle_swap(event: &PairSwapEvent, ctx: &graphite::EventContext) {
-    let addr   = data_source::address(host);
-    let net    = data_source::network(host);
-    let id_str = data_source::id(host);
+    let addr = data_source::address_current();
+    let net  = data_source::network_current();
+    let id   = data_source::id_current();
     // ...
 }
 ```
+
+See [examples/uniswap-v2](../examples/uniswap-v2/) for a complete factory + template example.
 
 ### Crypto Utilities
 
@@ -386,3 +386,4 @@ return;
 - [examples/erc1155](../examples/erc1155/) — multi-token: TransferSingle, TransferBatch, URI.
 - [examples/multi-source](../examples/multi-source/) — multiple contracts in one subgraph.
 - [examples/file-ds](../examples/file-ds/) — IPFS file data source handler.
+- [examples/uniswap-v2](../examples/uniswap-v2/) — Factory + template pattern: tracks Uniswap V2 pairs and swaps.

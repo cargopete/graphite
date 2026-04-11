@@ -3,7 +3,7 @@ resolver = "2"
 members = ["graphite", "graphite-macros", "graphite-cli", "graph-as-runtime", "examples/erc20", "examples/erc721", "examples/milestone", "examples/multi-source", "examples/erc1155", "examples/file-ds", "examples/uniswap-v2"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/cargopete/graphite"
@@ -12,9 +12,9 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 # Internal crates — version required for crates.io publishing
-graphite = { package = "graphite-sdk", path = "graphite", version = "1.0.0" }
-graphite-macros = { path = "graphite-macros", version = "1.0.0" }
-graph-as-runtime = { path = "graph-as-runtime", version = "1.0.0" }
+graphite = { package = "graphite-sdk", path = "graphite", version = "1.0.1" }
+graphite-macros = { path = "graphite-macros", version = "1.0.1" }
+graph-as-runtime = { path = "graph-as-runtime", version = "1.0.1" }
 
 # Ethereum primitives (alloy ecosystem)
 alloy-primitives = { version = "0.8", default-features = false }

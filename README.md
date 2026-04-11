@@ -162,12 +162,19 @@ handler  = "handleTransfer"
 
 ## Crate Structure
 
-| Crate | Purpose |
-|-------|---------|
+| Crate (crates.io name) | Purpose |
+|------------------------|---------|
 | `graph-as-runtime` | `no_std` AS ABI layer: allocator, type layout, host FFI |
 | `graphite-macros` | `#[handler]`, `#[derive(Entity)]` proc macros |
 | `graphite-cli` | CLI: `init`, `codegen`, `manifest`, `build`, `test`, `deploy` |
-| `graphite` | User-facing SDK, `MockHost` for native testing |
+| `graphite-sdk` | User-facing SDK, `MockHost` for native testing |
+
+The SDK crate is published as `graphite-sdk` but imported as `graphite`:
+
+```toml
+[dependencies]
+graphite = { package = "graphite-sdk", version = "1", default-features = false }
+```
 
 ## Examples
 
