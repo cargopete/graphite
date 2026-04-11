@@ -14,15 +14,10 @@ use alloc::vec::Vec;
 /// Generated from `NFT` entity in schema.graphql.
 pub struct NFT {
     id: alloc::string::String,
-    /// owner: Bytes! (non-nullable)
     owner: Vec<u8>,
-    /// tokenURI: String! (non-nullable)
     token_uri: alloc::string::String,
-    /// name: String (nullable)
     name: Option<alloc::string::String>,
-    /// description: String (nullable)
     description: Option<alloc::string::String>,
-    /// imageURI: String (nullable)
     image_uri: Option<alloc::string::String>,
 }
 
@@ -39,9 +34,13 @@ impl NFT {
     }
 
     pub fn owner(&self) -> &Vec<u8> { &self.owner }
+
     pub fn token_uri(&self) -> &alloc::string::String { &self.token_uri }
+
     pub fn name(&self) -> Option<&alloc::string::String> { self.name.as_ref() }
+
     pub fn description(&self) -> Option<&alloc::string::String> { self.description.as_ref() }
+
     pub fn image_uri(&self) -> Option<&alloc::string::String> { self.image_uri.as_ref() }
 
     pub fn set_owner(mut self, v: Vec<u8>) -> Self {
@@ -93,15 +92,9 @@ impl NFT {
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
         fields.insert("owner".to_string(), FieldValue::Bytes(self.owner.clone()));
         fields.insert("tokenURI".to_string(), FieldValue::String(self.token_uri.clone()));
-        if let Some(ref v) = self.name {
-            fields.insert("name".to_string(), FieldValue::String(v.clone()));
-        }
-        if let Some(ref v) = self.description {
-            fields.insert("description".to_string(), FieldValue::String(v.clone()));
-        }
-        if let Some(ref v) = self.image_uri {
-            fields.insert("imageURI".to_string(), FieldValue::String(v.clone()));
-        }
+        if let Some(ref v) = self.name { fields.insert("name".to_string(), FieldValue::String(v.clone())); }
+        if let Some(ref v) = self.description { fields.insert("description".to_string(), FieldValue::String(v.clone())); }
+        if let Some(ref v) = self.image_uri { fields.insert("imageURI".to_string(), FieldValue::String(v.clone())); }
         STORE.with(|s| s.borrow_mut().set_entity("NFT", &self.id, fields));
     }
 
@@ -131,26 +124,27 @@ impl NFT {
         let fields = STORE.with(|s| s.borrow().get_entity("NFT", id).cloned())?;
         Some(Self {
             id: id.into(),
-            owner: match fields.get("owner") {
-                Some(FieldValue::Bytes(b)) => b.clone(),
-                _ => Default::default(),
-            },
-            token_uri: match fields.get("tokenURI") {
-                Some(FieldValue::String(s)) => s.clone(),
-                _ => Default::default(),
-            },
-            name: match fields.get("name") {
-                Some(FieldValue::String(s)) => Some(s.clone()),
-                _ => None,
-            },
-            description: match fields.get("description") {
-                Some(FieldValue::String(s)) => Some(s.clone()),
-                _ => None,
-            },
-            image_uri: match fields.get("imageURI") {
-                Some(FieldValue::String(s)) => Some(s.clone()),
-                _ => None,
-            },
+            owner: fields.get("owner").and_then(|v| if let FieldValue::Bytes(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+            token_uri: fields.get("tokenURI").and_then(|v| if let FieldValue::String(s) = v { Some(s.clone()) } else { None }).unwrap_or_default(),
+            name: fields.get("name").and_then(|v| if let FieldValue::String(s) = v { Some(s.clone()) } else { None }),
+            description: fields.get("description").and_then(|v| if let FieldValue::String(s) = v { Some(s.clone()) } else { None }),
+            image_uri: fields.get("imageURI").and_then(|v| if let FieldValue::String(s) = v { Some(s.clone()) } else { None }),
         })
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn remove(id: &str) {
+        let entity_ptr = graph_as_runtime::as_types::new_asc_string("NFT");
+        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);
+        unsafe {
+            graph_as_runtime::ffi::store_remove(entity_ptr, id_ptr);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn remove(id: &str) {
+        use graph_as_runtime::native_store::STORE;
+        STORE.with(|s| s.borrow_mut().remove_entity("NFT", id));
+    }
 }
+

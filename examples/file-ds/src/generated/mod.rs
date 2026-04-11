@@ -1,5 +1,8 @@
-pub mod erc721;
-pub mod schema;
+//! Generated code — do not edit.
 
-pub use erc721::*;
+mod schema;
 pub use schema::*;
+
+mod erc721;
+pub use erc721::*;
+

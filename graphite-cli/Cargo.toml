@@ -1,7 +1,7 @@
 [package]
 name = "graphite-cli"
 description = "CLI tooling for Graphite subgraphs — codegen, build, deploy"
-version = "1.0.3"
+version = "1.0.4"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

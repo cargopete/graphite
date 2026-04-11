@@ -7,13 +7,15 @@
 
 extern crate alloc;
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Generated from `PairCreated` event.
-pub struct PairCreatedEvent {
+pub struct FactoryPairCreatedEvent {
     pub token0: [u8; 20],
     pub token1: [u8; 20],
     pub pair: [u8; 20],
+    pub param_3: Vec<u8>,
     pub block_number: Vec<u8>,
     pub block_timestamp: Vec<u8>,
     pub tx_hash: [u8; 32],
@@ -21,18 +23,18 @@ pub struct PairCreatedEvent {
     pub address: [u8; 20],
 }
 
-impl graph_as_runtime::ethereum::FromRawEvent for PairCreatedEvent {
-    fn from_raw_event(
-        raw: &graph_as_runtime::ethereum::RawEthereumEvent,
-    ) -> Result<Self, &'static str> {
+impl graph_as_runtime::ethereum::FromRawEvent for FactoryPairCreatedEvent {
+    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
         let token0 = raw.find_address("token0")?;
         let token1 = raw.find_address("token1")?;
         let pair = raw.find_address("pair")?;
+        let param_3 = raw.find_uint("param_3")?;
 
         Ok(Self {
             token0,
             token1,
             pair,
+            param_3,
             block_number: raw.block_number.clone(),
             block_timestamp: raw.block_timestamp.clone(),
             tx_hash: raw.tx_hash,
@@ -41,3 +43,5 @@ impl graph_as_runtime::ethereum::FromRawEvent for PairCreatedEvent {
         })
     }
 }
+
+

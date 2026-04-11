@@ -23,9 +23,7 @@ pub struct ERC20ApprovalEvent {
 }
 
 impl graph_as_runtime::ethereum::FromRawEvent for ERC20ApprovalEvent {
-    fn from_raw_event(
-        raw: &graph_as_runtime::ethereum::RawEthereumEvent,
-    ) -> Result<Self, &'static str> {
+    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
         let owner = raw.find_address("owner")?;
         let spender = raw.find_address("spender")?;
         let value = raw.find_uint("value")?;
@@ -43,6 +41,7 @@ impl graph_as_runtime::ethereum::FromRawEvent for ERC20ApprovalEvent {
     }
 }
 
+
 /// Generated from `Transfer` event.
 pub struct ERC20TransferEvent {
     pub from: [u8; 20],
@@ -56,9 +55,7 @@ pub struct ERC20TransferEvent {
 }
 
 impl graph_as_runtime::ethereum::FromRawEvent for ERC20TransferEvent {
-    fn from_raw_event(
-        raw: &graph_as_runtime::ethereum::RawEthereumEvent,
-    ) -> Result<Self, &'static str> {
+    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
         let from = raw.find_address("from")?;
         let to = raw.find_address("to")?;
         let value = raw.find_uint("value")?;
@@ -75,3 +72,5 @@ impl graph_as_runtime::ethereum::FromRawEvent for ERC20TransferEvent {
         })
     }
 }
+
+

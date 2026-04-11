@@ -10,6 +10,17 @@ use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::Path;
 
+/// Convert a contract name to a valid Rust type prefix.
+/// Names that already look like CamelCase (no separators) are kept as-is.
+/// Names with hyphens or underscores are converted to UpperCamelCase.
+fn contract_ident(name: &str) -> String {
+    if name.contains('-') || name.contains('_') {
+        name.to_upper_camel_case()
+    } else {
+        name.to_owned()
+    }
+}
+
 /// Generate Rust bindings for a contract ABI.
 pub fn generate_abi_bindings(abi_path: &Path, contract_name: &str) -> Result<String> {
     let abi_json = std::fs::read_to_string(abi_path)
@@ -61,7 +72,7 @@ pub fn generate_abi_bindings(abi_path: &Path, contract_name: &str) -> Result<Str
 /// Generate a Rust struct for an event using raw graph-as-runtime types.
 fn generate_event_struct(event: &Event, contract_name: &str) -> Result<String> {
     let mut output = String::new();
-    let struct_name = format!("{}{}Event", contract_name, event.name.to_upper_camel_case());
+    let struct_name = format!("{}{}Event", contract_ident(contract_name), event.name.to_upper_camel_case());
 
     // Doc comment
     writeln!(output, "/// Generated from `{}` event.", event.name)?;
@@ -160,7 +171,7 @@ fn generate_from_raw_event_impl(event: &Event, struct_name: &str) -> Result<Stri
 fn generate_call_struct(function: &Function, contract_name: &str) -> Result<String> {
     let mut output = String::new();
     let fn_camel = function.name.to_upper_camel_case();
-    let struct_name = format!("{}{}Call", contract_name, fn_camel);
+    let struct_name = format!("{}{}Call", contract_ident(contract_name), fn_camel);
 
     writeln!(output, "/// Generated from `{}` function call.", function.name)?;
     writeln!(output, "pub struct {} {{", struct_name)?;

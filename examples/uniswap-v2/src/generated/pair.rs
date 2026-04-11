@@ -1,4 +1,4 @@
-//! Generated event bindings for Pair template contract.
+//! Generated event bindings for Pair contract.
 //!
 //! DO NOT EDIT — regenerate with `graphite codegen`
 
@@ -7,10 +7,11 @@
 
 extern crate alloc;
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Generated from `Swap` event.
-pub struct SwapEvent {
+pub struct PairSwapEvent {
     pub sender: [u8; 20],
     pub amount0_in: Vec<u8>,
     pub amount1_in: Vec<u8>,
@@ -24,10 +25,8 @@ pub struct SwapEvent {
     pub address: [u8; 20],
 }
 
-impl graph_as_runtime::ethereum::FromRawEvent for SwapEvent {
-    fn from_raw_event(
-        raw: &graph_as_runtime::ethereum::RawEthereumEvent,
-    ) -> Result<Self, &'static str> {
+impl graph_as_runtime::ethereum::FromRawEvent for PairSwapEvent {
+    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
         let sender = raw.find_address("sender")?;
         let amount0_in = raw.find_uint("amount0In")?;
         let amount1_in = raw.find_uint("amount1In")?;
@@ -50,3 +49,5 @@ impl graph_as_runtime::ethereum::FromRawEvent for SwapEvent {
         })
     }
 }
+
+

@@ -1,8 +1,11 @@
-// DO NOT EDIT — regenerate with `graphite codegen`
-pub mod factory;
-pub mod pair;
-pub mod schema;
+//! Generated code — do not edit.
 
-pub use factory::PairCreatedEvent;
-pub use pair::SwapEvent;
-pub use schema::{Pool, Swap};
+mod schema;
+pub use schema::*;
+
+mod factory;
+pub use factory::*;
+
+mod pair;
+pub use pair::*;
+

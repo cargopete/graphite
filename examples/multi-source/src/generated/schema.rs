@@ -35,6 +35,18 @@ impl Erc20Transfer {
         }
     }
 
+    pub fn from(&self) -> &Vec<u8> { &self.from }
+
+    pub fn to(&self) -> &Vec<u8> { &self.to }
+
+    pub fn value(&self) -> &Vec<u8> { &self.value }
+
+    pub fn block_number(&self) -> &Vec<u8> { &self.block_number }
+
+    pub fn timestamp(&self) -> &Vec<u8> { &self.timestamp }
+
+    pub fn transaction_hash(&self) -> &Vec<u8> { &self.transaction_hash }
+
     pub fn set_from(mut self, v: Vec<u8>) -> Self {
         self.from = v;
         self
@@ -172,6 +184,18 @@ impl Erc721Transfer {
             transaction_hash: Default::default(),
         }
     }
+
+    pub fn from(&self) -> &Vec<u8> { &self.from }
+
+    pub fn to(&self) -> &Vec<u8> { &self.to }
+
+    pub fn token_id(&self) -> &Vec<u8> { &self.token_id }
+
+    pub fn block_number(&self) -> &Vec<u8> { &self.block_number }
+
+    pub fn timestamp(&self) -> &Vec<u8> { &self.timestamp }
+
+    pub fn transaction_hash(&self) -> &Vec<u8> { &self.transaction_hash }
 
     pub fn set_from(mut self, v: Vec<u8>) -> Self {
         self.from = v;

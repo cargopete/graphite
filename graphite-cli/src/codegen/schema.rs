@@ -419,6 +419,9 @@ fn wasm_load_field_decode<'a>(
         "Boolean" => format!("get({:?}).and_then(|v| v.as_bool())", gql_name),
         "Int" => format!("get({:?}).and_then(|v| v.as_i32())", gql_name),
         "Timestamp" | "Int8" => format!("get({:?}).and_then(|v| v.as_i64())", gql_name),
+        "BigInt" | "BigDecimal" | "Bytes" | "Address" => {
+            format!("get({:?}).and_then(|v| v.as_bytes())", gql_name)
+        }
         _ => format!("get({:?}).and_then(|v| v.as_string().map(|s| s.to_string()))", gql_name),
     };
     if nullable {
@@ -467,6 +470,10 @@ fn native_load_field_decode<'a>(
         ),
         "BigInt" | "BigDecimal" => format!(
             "fields.get({:?}).and_then(|v| if let FieldValue::BigInt(b) = v {{ Some(b.clone()) }} else {{ None }})",
+            gql_name
+        ),
+        "Bytes" | "Address" => format!(
+            "fields.get({:?}).and_then(|v| if let FieldValue::Bytes(b) = v {{ Some(b.clone()) }} else {{ None }})",
             gql_name
         ),
         _ => format!(

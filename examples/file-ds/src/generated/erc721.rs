@@ -7,6 +7,7 @@
 
 extern crate alloc;
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Generated from `Transfer` event.
@@ -22,9 +23,7 @@ pub struct ERC721TransferEvent {
 }
 
 impl graph_as_runtime::ethereum::FromRawEvent for ERC721TransferEvent {
-    fn from_raw_event(
-        raw: &graph_as_runtime::ethereum::RawEthereumEvent,
-    ) -> Result<Self, &'static str> {
+    fn from_raw_event(raw: &graph_as_runtime::ethereum::RawEthereumEvent) -> Result<Self, &'static str> {
         let from = raw.find_address("from")?;
         let to = raw.find_address("to")?;
         let token_id = raw.find_uint("tokenId")?;
@@ -41,3 +40,5 @@ impl graph_as_runtime::ethereum::FromRawEvent for ERC721TransferEvent {
         })
     }
 }
+
+

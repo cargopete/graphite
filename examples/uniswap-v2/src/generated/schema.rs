@@ -11,16 +11,11 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-// ── Pool ────────────────────────────────────────────────────────────────────
-
 /// Generated from `Pool` entity in schema.graphql.
 pub struct Pool {
     id: alloc::string::String,
-    /// token0: Bytes! (non-nullable)
     token0: Vec<u8>,
-    /// token1: Bytes! (non-nullable)
     token1: Vec<u8>,
-    /// swapCount: BigInt! (non-nullable)
     swap_count: Vec<u8>,
 }
 
@@ -30,12 +25,14 @@ impl Pool {
             id: id.into(),
             token0: Default::default(),
             token1: Default::default(),
-            swap_count: alloc::vec![0],
+            swap_count: Default::default(),
         }
     }
 
     pub fn token0(&self) -> &Vec<u8> { &self.token0 }
+
     pub fn token1(&self) -> &Vec<u8> { &self.token1 }
+
     pub fn swap_count(&self) -> &Vec<u8> { &self.swap_count }
 
     pub fn set_token0(mut self, v: Vec<u8>) -> Self {
@@ -69,8 +66,8 @@ impl Pool {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&self) {
-        use graph_as_runtime::native_store::{FieldValue, STORE};
         use std::collections::HashMap;
+        use graph_as_runtime::native_store::{FieldValue, STORE};
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
         fields.insert("token0".to_string(), FieldValue::Bytes(self.token0.clone()));
@@ -93,7 +90,7 @@ impl Pool {
             id: id.into(),
             token0: get("token0").and_then(|v| v.as_bytes()).unwrap_or_default(),
             token1: get("token1").and_then(|v| v.as_bytes()).unwrap_or_default(),
-            swap_count: get("swapCount").and_then(|v| v.as_bytes()).unwrap_or(alloc::vec![0]),
+            swap_count: get("swapCount").and_then(|v| v.as_bytes()).unwrap_or_default(),
         })
     }
 
@@ -103,40 +100,37 @@ impl Pool {
         let fields = STORE.with(|s| s.borrow().get_entity("Pool", id).cloned())?;
         Some(Self {
             id: id.into(),
-            token0: match fields.get("token0") {
-                Some(FieldValue::Bytes(b)) => b.clone(),
-                _ => Default::default(),
-            },
-            token1: match fields.get("token1") {
-                Some(FieldValue::Bytes(b)) => b.clone(),
-                _ => Default::default(),
-            },
-            swap_count: match fields.get("swapCount") {
-                Some(FieldValue::BigInt(b)) => b.clone(),
-                _ => alloc::vec![0],
-            },
+            token0: fields.get("token0").and_then(|v| if let FieldValue::Bytes(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+            token1: fields.get("token1").and_then(|v| if let FieldValue::Bytes(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+            swap_count: fields.get("swapCount").and_then(|v| if let FieldValue::BigInt(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
         })
     }
-}
 
-// ── Swap ────────────────────────────────────────────────────────────────────
+    #[cfg(target_arch = "wasm32")]
+    pub fn remove(id: &str) {
+        let entity_ptr = graph_as_runtime::as_types::new_asc_string("Pool");
+        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);
+        unsafe {
+            graph_as_runtime::ffi::store_remove(entity_ptr, id_ptr);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn remove(id: &str) {
+        use graph_as_runtime::native_store::STORE;
+        STORE.with(|s| s.borrow_mut().remove_entity("Pool", id));
+    }
+}
 
 /// Generated from `Swap` entity in schema.graphql.
 pub struct Swap {
     id: alloc::string::String,
-    /// pool: String! (non-nullable)
     pool: alloc::string::String,
-    /// amount0In: BigInt! (non-nullable)
     amount0_in: Vec<u8>,
-    /// amount1In: BigInt! (non-nullable)
     amount1_in: Vec<u8>,
-    /// amount0Out: BigInt! (non-nullable)
     amount0_out: Vec<u8>,
-    /// amount1Out: BigInt! (non-nullable)
     amount1_out: Vec<u8>,
-    /// blockNumber: BigInt! (non-nullable)
     block_number: Vec<u8>,
-    /// timestamp: BigInt! (non-nullable)
     timestamp: Vec<u8>,
 }
 
@@ -153,6 +147,20 @@ impl Swap {
             timestamp: Default::default(),
         }
     }
+
+    pub fn pool(&self) -> &alloc::string::String { &self.pool }
+
+    pub fn amount0_in(&self) -> &Vec<u8> { &self.amount0_in }
+
+    pub fn amount1_in(&self) -> &Vec<u8> { &self.amount1_in }
+
+    pub fn amount0_out(&self) -> &Vec<u8> { &self.amount0_out }
+
+    pub fn amount1_out(&self) -> &Vec<u8> { &self.amount1_out }
+
+    pub fn block_number(&self) -> &Vec<u8> { &self.block_number }
+
+    pub fn timestamp(&self) -> &Vec<u8> { &self.timestamp }
 
     pub fn set_pool(mut self, v: alloc::string::String) -> Self {
         self.pool = v;
@@ -209,8 +217,8 @@ impl Swap {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&self) {
-        use graph_as_runtime::native_store::{FieldValue, STORE};
         use std::collections::HashMap;
+        use graph_as_runtime::native_store::{FieldValue, STORE};
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::String(self.id.clone()));
         fields.insert("pool".to_string(), FieldValue::String(self.pool.clone()));
@@ -222,4 +230,58 @@ impl Swap {
         fields.insert("timestamp".to_string(), FieldValue::BigInt(self.timestamp.clone()));
         STORE.with(|s| s.borrow_mut().set_entity("Swap", &self.id, fields));
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn load(id: &str) -> Option<Self> {
+        let entity_ptr = graph_as_runtime::as_types::new_asc_string("Swap");
+        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);
+        let map_ptr = unsafe { graph_as_runtime::ffi::store_get(entity_ptr, id_ptr) };
+        if map_ptr == 0 {
+            return None;
+        }
+        let fields = unsafe { graph_as_runtime::store_read::read_typed_map(map_ptr) };
+        let get = |k: &str| fields.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
+        Some(Self {
+            id: id.into(),
+            pool: get("pool").and_then(|v| v.as_string().map(|s| s.to_string())).unwrap_or_default(),
+            amount0_in: get("amount0In").and_then(|v| v.as_bytes()).unwrap_or_default(),
+            amount1_in: get("amount1In").and_then(|v| v.as_bytes()).unwrap_or_default(),
+            amount0_out: get("amount0Out").and_then(|v| v.as_bytes()).unwrap_or_default(),
+            amount1_out: get("amount1Out").and_then(|v| v.as_bytes()).unwrap_or_default(),
+            block_number: get("blockNumber").and_then(|v| v.as_bytes()).unwrap_or_default(),
+            timestamp: get("timestamp").and_then(|v| v.as_bytes()).unwrap_or_default(),
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load(id: &str) -> Option<Self> {
+        use graph_as_runtime::native_store::{FieldValue, STORE};
+        let fields = STORE.with(|s| s.borrow().get_entity("Swap", id).cloned())?;
+        Some(Self {
+            id: id.into(),
+            pool: fields.get("pool").and_then(|v| if let FieldValue::String(s) = v { Some(s.clone()) } else { None }).unwrap_or_default(),
+            amount0_in: fields.get("amount0In").and_then(|v| if let FieldValue::BigInt(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+            amount1_in: fields.get("amount1In").and_then(|v| if let FieldValue::BigInt(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+            amount0_out: fields.get("amount0Out").and_then(|v| if let FieldValue::BigInt(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+            amount1_out: fields.get("amount1Out").and_then(|v| if let FieldValue::BigInt(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+            block_number: fields.get("blockNumber").and_then(|v| if let FieldValue::BigInt(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+            timestamp: fields.get("timestamp").and_then(|v| if let FieldValue::BigInt(b) = v { Some(b.clone()) } else { None }).unwrap_or_default(),
+        })
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn remove(id: &str) {
+        let entity_ptr = graph_as_runtime::as_types::new_asc_string("Swap");
+        let id_ptr = graph_as_runtime::as_types::new_asc_string(id);
+        unsafe {
+            graph_as_runtime::ffi::store_remove(entity_ptr, id_ptr);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn remove(id: &str) {
+        use graph_as_runtime::native_store::STORE;
+        STORE.with(|s| s.borrow_mut().remove_entity("Swap", id));
+    }
 }
+

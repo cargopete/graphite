@@ -18,7 +18,7 @@ use graphite::data_source;
 use graphite_macros::handler;
 
 mod generated;
-use generated::{PairCreatedEvent, Pool, Swap, SwapEvent};
+use generated::{FactoryPairCreatedEvent, Pool, Swap, PairSwapEvent};
 
 // ── Factory handler ──────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ use generated::{PairCreatedEvent, Pool, Swap, SwapEvent};
 /// Creates a `Pool` entity keyed by the pair address and spawns a dynamic
 /// data source so the `Pair` template will start indexing its events.
 #[handler]
-pub fn handle_pair_created(event: &PairCreatedEvent, _ctx: &graphite::EventContext) {
+pub fn handle_pair_created(event: &FactoryPairCreatedEvent, _ctx: &graphite::EventContext) {
     let pool_id = addr_hex(&event.pair);
 
     Pool::new(&pool_id)
@@ -44,7 +44,7 @@ pub fn handle_pair_created(event: &PairCreatedEvent, _ctx: &graphite::EventConte
 ///
 /// Records a `Swap` entity and increments the parent pool's swap counter.
 #[handler]
-pub fn handle_swap(event: &SwapEvent, ctx: &graphite::EventContext) {
+pub fn handle_swap(event: &PairSwapEvent, ctx: &graphite::EventContext) {
     // The pair address is the data source address at runtime.
     let pair_addr = data_source::address_current();
     let pool_id = addr_hex(&pair_addr);
@@ -134,7 +134,7 @@ mod tests {
                 EventParam { name: "token0".into(), value: EthereumValue::Address(TOKEN0) },
                 EventParam { name: "token1".into(), value: EthereumValue::Address(TOKEN1) },
                 EventParam { name: "pair".into(),   value: EthereumValue::Address(PAIR_ADDR) },
-                EventParam { name: "".into(),        value: EthereumValue::Uint(alloc::vec![1]) },
+                EventParam { name: "param_3".into(), value: EthereumValue::Uint(alloc::vec![1]) },
             ],
             ..Default::default()
         }
@@ -165,7 +165,7 @@ mod tests {
 
         let raw = pair_created_event();
         handle_pair_created_impl(
-            &PairCreatedEvent::from_raw_event(&raw).unwrap(),
+            &FactoryPairCreatedEvent::from_raw_event(&raw).unwrap(),
             &graphite::EventContext::default(),
         );
 
@@ -185,7 +185,7 @@ mod tests {
         // First create the pool (as handle_pair_created would have).
         let factory_raw = pair_created_event();
         handle_pair_created_impl(
-            &PairCreatedEvent::from_raw_event(&factory_raw).unwrap(),
+            &FactoryPairCreatedEvent::from_raw_event(&factory_raw).unwrap(),
             &graphite::EventContext::default(),
         );
 
@@ -194,7 +194,7 @@ mod tests {
 
         let raw = swap_event();
         handle_swap_impl(
-            &SwapEvent::from_raw_event(&raw).unwrap(),
+            &PairSwapEvent::from_raw_event(&raw).unwrap(),
             &graphite::EventContext::default(),
         );
 
@@ -212,7 +212,7 @@ mod tests {
 
         let factory_raw = pair_created_event();
         handle_pair_created_impl(
-            &PairCreatedEvent::from_raw_event(&factory_raw).unwrap(),
+            &FactoryPairCreatedEvent::from_raw_event(&factory_raw).unwrap(),
             &graphite::EventContext::default(),
         );
 
@@ -224,7 +224,7 @@ mod tests {
             let mut raw = swap_event();
             raw.tx_hash = [i; 32];
             handle_swap_impl(
-                &SwapEvent::from_raw_event(&raw).unwrap(),
+                &PairSwapEvent::from_raw_event(&raw).unwrap(),
                 &graphite::EventContext::default(),
             );
         }
@@ -254,12 +254,12 @@ mod tests {
                 EventParam { name: "token0".into(), value: EthereumValue::Address(TOKEN0) },
                 EventParam { name: "token1".into(), value: EthereumValue::Address(TOKEN1) },
                 EventParam { name: "pair".into(),   value: EthereumValue::Address(PAIR_ADDR) },
-                EventParam { name: "".into(),        value: EthereumValue::Uint(alloc::vec![1]) },
+                EventParam { name: "param_3".into(), value: EthereumValue::Uint(alloc::vec![1]) },
             ],
             ..Default::default()
         };
         handle_pair_created_impl(
-            &PairCreatedEvent::from_raw_event(&raw_a_patched).unwrap(),
+            &FactoryPairCreatedEvent::from_raw_event(&raw_a_patched).unwrap(),
             &graphite::EventContext::default(),
         );
 
@@ -273,12 +273,12 @@ mod tests {
                 EventParam { name: "token0".into(), value: EthereumValue::Address([0x33; 20]) },
                 EventParam { name: "token1".into(), value: EthereumValue::Address([0x44; 20]) },
                 EventParam { name: "pair".into(),   value: EthereumValue::Address(pair_b) },
-                EventParam { name: "".into(),        value: EthereumValue::Uint(alloc::vec![2]) },
+                EventParam { name: "param_3".into(), value: EthereumValue::Uint(alloc::vec![2]) },
             ],
             ..Default::default()
         };
         handle_pair_created_impl(
-            &PairCreatedEvent::from_raw_event(&raw_b).unwrap(),
+            &FactoryPairCreatedEvent::from_raw_event(&raw_b).unwrap(),
             &graphite::EventContext::default(),
         );
 
