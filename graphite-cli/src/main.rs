@@ -282,7 +282,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-graphite = {{ git = "https://github.com/cargopete/graphite.git" }}
+graphite = {{ package = "graphite-sdk", version = "1" }}
 
 [profile.release]
 opt-level = "z"

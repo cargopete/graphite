@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 graph-as-runtime = { path = "../../graph-as-runtime" }
 
 [dev-dependencies]
-graphite = { path = "../../graphite" }
+graphite = { package = "graphite-sdk", path = "../../graphite" }
 
 [profile.release]
 panic = "abort"

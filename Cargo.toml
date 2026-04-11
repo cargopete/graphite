@@ -12,7 +12,7 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 # Internal crates — version required for crates.io publishing
-graphite = { path = "graphite", version = "1.0.0" }
+graphite = { package = "graphite-sdk", path = "graphite", version = "1.0.0" }
 graphite-macros = { path = "graphite-macros", version = "1.0.0" }
 graph-as-runtime = { path = "graph-as-runtime", version = "1.0.0" }
 

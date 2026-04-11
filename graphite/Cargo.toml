@@ -1,5 +1,5 @@
 [package]
-name = "graphite"
+name = "graphite-sdk"
 description = "Rust SDK for building subgraphs on The Graph — write handlers in Rust, deploy to graph-node"
 version.workspace = true
 edition.workspace = true
@@ -10,6 +10,9 @@ rust-version.workspace = true
 keywords = ["graph", "subgraph", "ethereum", "blockchain", "indexing"]
 categories = ["api-bindings", "wasm", "development-tools"]
 readme = "../README.md"
+
+[lib]
+name = "graphite"
 
 [features]
 default = ["std"]

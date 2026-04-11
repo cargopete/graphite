@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-graphite = { path = "../../graphite" }
+graphite = { package = "graphite-sdk", path = "../../graphite" }
 graphite-macros = { path = "../../graphite-macros" }
 graph-as-runtime = { path = "../../graph-as-runtime" }
 
