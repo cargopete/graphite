@@ -105,6 +105,7 @@ See [examples/erc20/src/lib.rs](examples/erc20/src/lib.rs) for the full working 
 | `crypto.keccak256` / `sha256` / `sha3` / `secp256k1.recover` | ✅ |
 | `BigInt` — full arithmetic, bitwise, shifts | ✅ |
 | `BigDecimal` — full arithmetic | ✅ |
+| All GraphQL scalar types (`String`, `Int`, `Float`, `Boolean`, `BigInt`, `BigDecimal`, `Bytes`, `Address`, `Timestamp`, `Int8`, `DateTime`) | ✅ |
 | Block handler filters (`polling`, `every: N`) | ✅ |
 | Native `cargo test` (no Docker) | ✅ |
 
@@ -158,6 +159,12 @@ filter = { kind = "polling", every = 10 }
 [[contracts.call_handlers]]
 function = "transfer(address,uint256)"
 handler  = "handleTransfer"
+
+# IPFS file data source template
+[[templates]]
+name    = "NFTMetadata"
+kind    = "file/ipfs"
+handler = "handle_nft_metadata"
 ```
 
 ## Crate Structure
