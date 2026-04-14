@@ -25,6 +25,7 @@ pub enum StoreValue {
     Bool(bool),
     Int(i32),
     Int8(i64),
+    Float(f64),
     Null,
 }
 
@@ -66,6 +67,14 @@ impl StoreValue {
             StoreValue::Int8(n) => Some(*n),
             StoreValue::Int(n) => Some(*n as i64),
             _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        if let StoreValue::Float(f) = self {
+            Some(*f)
+        } else {
+            None
         }
     }
 }
@@ -163,6 +172,10 @@ unsafe fn read_value(ptr: u32) -> StoreValue {
             // BigInt
             let b = unsafe { read_bytes(payload as u32) };
             StoreValue::BigInt(b)
+        }
+        2 => {
+            // Float — payload is f64::to_bits()
+            StoreValue::Float(f64::from_bits(payload))
         }
         8 => {
             // Int8 / Timestamp — payload is the i64 value directly

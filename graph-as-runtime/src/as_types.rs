@@ -71,6 +71,8 @@ const CLASS_ARRAY_BUFFER: u32 = 4;
 
 pub const VALUE_KIND_STRING: u32 = 0;
 pub const VALUE_KIND_INT: u32 = 1;
+/// Float — 64-bit IEEE 754 double (graph-ts ValueKind 2). Payload = f64::to_bits().
+pub const VALUE_KIND_FLOAT: u32 = 2;
 pub const VALUE_KIND_BOOL: u32 = 3;
 pub const VALUE_KIND_BYTES: u32 = 6;
 pub const VALUE_KIND_BIG_INT: u32 = 7;
@@ -201,6 +203,11 @@ pub fn new_value_int8(n: i64) -> u32 {
 /// Build a `Value` of kind Bool.
 pub fn new_value_bool(b: bool) -> u32 {
     new_value(VALUE_KIND_BOOL, b as u64)
+}
+
+/// Build a `Value` of kind Float (f64).
+pub fn new_value_float(f: f64) -> u32 {
+    new_value(VALUE_KIND_FLOAT, f.to_bits())
 }
 
 fn new_value(kind: u32, payload: u64) -> u32 {

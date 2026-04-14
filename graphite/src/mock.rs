@@ -517,6 +517,7 @@ impl HostFunctions for MockHost {
                         FieldValue::Bool(b) => Value::Bool(*b),
                         FieldValue::Int(n) => Value::Int(*n),
                         FieldValue::Int8(n) => Value::Int8(*n),
+                        FieldValue::Float(f) => Value::Float(*f),
                         FieldValue::Null => Value::Null,
                     };
                     e.set(k.clone(), v);

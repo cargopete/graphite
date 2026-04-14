@@ -56,6 +56,7 @@ pub enum Value {
     String(String),
     Int(i32),
     Int8(i64),
+    Float(f64),
     BigInt(BigInt),
     BigDecimal(BigDecimal),
     Bool(bool),

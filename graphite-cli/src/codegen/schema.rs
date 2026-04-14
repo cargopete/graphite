@@ -412,12 +412,13 @@ fn wasm_load_field_decode<'a>(
     }
     let base = get_base_scalar(ty);
     let expr = match base {
-        "ID" | "String" => format!(
+        "ID" | "String" | "DateTime" => format!(
             "get({:?}).and_then(|v| v.as_string().map(|s| s.to_string()))",
             gql_name
         ),
         "Boolean" => format!("get({:?}).and_then(|v| v.as_bool())", gql_name),
         "Int" => format!("get({:?}).and_then(|v| v.as_i32())", gql_name),
+        "Float" => format!("get({:?}).and_then(|v| v.as_f64())", gql_name),
         "Timestamp" | "Int8" => format!("get({:?}).and_then(|v| v.as_i64())", gql_name),
         "BigInt" | "BigDecimal" | "Bytes" | "Address" => {
             format!("get({:?}).and_then(|v| v.as_bytes())", gql_name)
@@ -452,7 +453,7 @@ fn native_load_field_decode<'a>(
     }
     let base = get_base_scalar(ty);
     let expr = match base {
-        "ID" | "String" => format!(
+        "ID" | "String" | "DateTime" => format!(
             "fields.get({:?}).and_then(|v| if let FieldValue::String(s) = v {{ Some(s.clone()) }} else {{ None }})",
             gql_name
         ),
@@ -462,6 +463,10 @@ fn native_load_field_decode<'a>(
         ),
         "Int" => format!(
             "fields.get({:?}).and_then(|v| if let FieldValue::Int(n) = v {{ Some(*n) }} else {{ None }})",
+            gql_name
+        ),
+        "Float" => format!(
+            "fields.get({:?}).and_then(|v| if let FieldValue::Float(f) = v {{ Some(*f) }} else {{ None }})",
             gql_name
         ),
         "Timestamp" | "Int8" => format!(
@@ -508,7 +513,7 @@ fn graphql_field_to_native_store_call<'a>(
     let base_scalar = get_base_scalar(ty);
     if nullable {
         match base_scalar {
-            "ID" | "String" => format!(
+            "ID" | "String" | "DateTime" => format!(
                 "        if let Some(ref v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::String(v.clone())); }}\n",
                 field_name, gql_name
             ),
@@ -518,6 +523,10 @@ fn graphql_field_to_native_store_call<'a>(
             ),
             "Int" => format!(
                 "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Int(v)); }}\n",
+                field_name, gql_name
+            ),
+            "Float" => format!(
+                "        if let Some(v) = self.{} {{ fields.insert({:?}.to_string(), FieldValue::Float(v)); }}\n",
                 field_name, gql_name
             ),
             "Timestamp" | "Int8" => format!(
@@ -539,7 +548,7 @@ fn graphql_field_to_native_store_call<'a>(
         }
     } else {
         match base_scalar {
-            "ID" | "String" => format!(
+            "ID" | "String" | "DateTime" => format!(
                 "        fields.insert({:?}.to_string(), FieldValue::String(self.{}.clone()));\n",
                 gql_name, field_name
             ),
@@ -549,6 +558,10 @@ fn graphql_field_to_native_store_call<'a>(
             ),
             "Int" => format!(
                 "        fields.insert({:?}.to_string(), FieldValue::Int(self.{}));\n",
+                gql_name, field_name
+            ),
+            "Float" => format!(
+                "        fields.insert({:?}.to_string(), FieldValue::Float(self.{}));\n",
                 gql_name, field_name
             ),
             "Timestamp" | "Int8" => format!(
@@ -592,7 +605,7 @@ fn graphql_field_to_builder_call<'a>(
 
     if nullable {
         match base_scalar {
-            "ID" | "String" => format!(
+            "ID" | "String" | "DateTime" => format!(
                 "        if let Some(ref v) = self.{} {{ b.set_string({:?}, v); }}\n",
                 field_name, gql_name
             ),
@@ -602,6 +615,10 @@ fn graphql_field_to_builder_call<'a>(
             ),
             "Int" => format!(
                 "        if let Some(v) = self.{} {{ b.set_i32({:?}, v); }}\n",
+                field_name, gql_name
+            ),
+            "Float" => format!(
+                "        if let Some(v) = self.{} {{ b.set_f64({:?}, v); }}\n",
                 field_name, gql_name
             ),
             "Timestamp" | "Int8" => format!(
@@ -623,12 +640,13 @@ fn graphql_field_to_builder_call<'a>(
         }
     } else {
         match base_scalar {
-            "ID" | "String" => format!(
+            "ID" | "String" | "DateTime" => format!(
                 "        b.set_string({:?}, &self.{});\n",
                 gql_name, field_name
             ),
             "Boolean" => format!("        b.set_bool({:?}, self.{});\n", gql_name, field_name),
             "Int" => format!("        b.set_i32({:?}, self.{});\n", gql_name, field_name),
+            "Float" => format!("        b.set_f64({:?}, self.{});\n", gql_name, field_name),
             "Timestamp" | "Int8" => {
                 format!("        b.set_i64({:?}, self.{});\n", gql_name, field_name)
             }
@@ -681,7 +699,7 @@ fn graphql_type_to_rust_inner(ty: &Type<'_, String>) -> String {
 /// Convert a GraphQL scalar name to its raw Rust type.
 fn scalar_to_rust(name: &str) -> String {
     match name {
-        "ID" | "String" => "alloc::string::String".to_string(),
+        "ID" | "String" | "DateTime" => "alloc::string::String".to_string(),
         "Int" => "i32".to_string(),
         "Float" => "f64".to_string(),
         "Boolean" => "bool".to_string(),

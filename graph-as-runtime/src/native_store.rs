@@ -18,6 +18,8 @@ pub enum FieldValue {
     Int(i32),
     /// 64-bit signed integer (Int8 / Timestamp scalars).
     Int8(i64),
+    /// IEEE 754 double (Float scalar).
+    Float(f64),
     Null,
 }
 
