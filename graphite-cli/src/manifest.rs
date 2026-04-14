@@ -40,7 +40,10 @@ pub fn generate(config_path: &PathBuf, output_path: &PathBuf) -> Result<()> {
     if !config.contracts.is_empty() {
         writeln!(out, "dataSources:").unwrap();
         for c in &config.contracts {
-            let events = load_events(&c.abi)?;
+            let events = match &c.abi {
+                Some(p) => load_events(p)?,
+                None => vec![],
+            };
             write_datasource(&mut out, c, network, &entity_names, &events, &wasm_path, false)?;
         }
     }
@@ -49,7 +52,10 @@ pub fn generate(config_path: &PathBuf, output_path: &PathBuf) -> Result<()> {
     if !config.templates.is_empty() {
         writeln!(out, "templates:").unwrap();
         for t in &config.templates {
-            let events = load_events(&t.abi)?;
+            let events = match &t.abi {
+                Some(p) => load_events(p)?,
+                None => vec![],
+            };
             write_datasource(&mut out, t, network, &entity_names, &events, &wasm_path, true)?;
         }
     }
@@ -73,6 +79,12 @@ fn write_datasource(
     wasm_path: &str,
     is_template: bool,
 ) -> Result<()> {
+    let kind = c.kind.as_deref().unwrap_or("ethereum/contract");
+
+    if kind == "file/ipfs" {
+        return write_file_ipfs_template(out, c, entity_names, wasm_path);
+    }
+
     writeln!(out, "  - kind: ethereum/contract").unwrap();
     writeln!(out, "    name: {}", c.name).unwrap();
     writeln!(out, "    network: {}", network).unwrap();
@@ -105,14 +117,11 @@ fn write_datasource(
     }
 
     // ABIs
-    writeln!(out, "      abis:").unwrap();
-    writeln!(out, "        - name: {}", c.name).unwrap();
-    writeln!(
-        out,
-        "          file: ./{}",
-        c.abi.display()
-    )
-    .unwrap();
+    if let Some(abi_path) = &c.abi {
+        writeln!(out, "      abis:").unwrap();
+        writeln!(out, "        - name: {}", c.name).unwrap();
+        writeln!(out, "          file: ./{}", abi_path.display()).unwrap();
+    }
 
     // Event handlers
     if !events.is_empty() {
@@ -151,6 +160,39 @@ fn write_datasource(
         writeln!(out, "      receipt: true").unwrap();
     }
     writeln!(out, "      file: {}", wasm_path).unwrap();
+    Ok(())
+}
+
+/// Emit a file/ipfs template entry.
+///
+/// These have a completely different structure from ethereum/contract entries:
+/// no `network:`, no `source:`, `handler:` (singular) instead of `eventHandlers:`.
+fn write_file_ipfs_template(
+    out: &mut String,
+    c: &ContractConfig,
+    entity_names: &[String],
+    wasm_path: &str,
+) -> Result<()> {
+    let handler = c.handler.as_deref().unwrap_or("handleFile");
+
+    writeln!(out, "  - kind: file/ipfs").unwrap();
+    writeln!(out, "    name: {}", c.name).unwrap();
+    writeln!(out, "    mapping:").unwrap();
+    writeln!(out, "      kind: file/ipfs").unwrap();
+    writeln!(out, "      apiVersion: 0.0.7").unwrap();
+    writeln!(out, "      language: wasm/assemblyscript").unwrap();
+
+    writeln!(out, "      entities:").unwrap();
+    if entity_names.is_empty() {
+        writeln!(out, "        - Entity  # replace with your entity names").unwrap();
+    } else {
+        for e in entity_names {
+            writeln!(out, "        - {}", e).unwrap();
+        }
+    }
+
+    writeln!(out, "      file: {}", wasm_path).unwrap();
+    writeln!(out, "      handler: {}", handler).unwrap();
     Ok(())
 }
 

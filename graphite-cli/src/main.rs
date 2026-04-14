@@ -550,8 +550,13 @@ fn default_output_dir() -> PathBuf {
 pub(crate) struct ContractConfig {
     /// Contract name (used for struct prefixes)
     pub(crate) name: String,
-    /// Path to the ABI JSON file
-    pub(crate) abi: PathBuf,
+    /// Datasource kind. Defaults to "ethereum/contract".
+    /// Use "file/ipfs" for IPFS file data source templates.
+    #[serde(default)]
+    pub(crate) kind: Option<String>,
+    /// Path to the ABI JSON file. Not required for file/ipfs templates.
+    #[serde(default)]
+    pub(crate) abi: Option<PathBuf>,
     /// Deployed contract address (used by `graphite manifest`)
     pub(crate) address: Option<String>,
     /// Block number to start indexing from (used by `graphite manifest`)
@@ -562,6 +567,9 @@ pub(crate) struct ContractConfig {
     /// Call handlers — explicit function signature + handler name pairs
     #[serde(default)]
     pub(crate) call_handlers: Vec<CallHandlerConfig>,
+    /// Single file handler name. Used only with kind = "file/ipfs".
+    #[serde(default)]
+    pub(crate) handler: Option<String>,
     /// If true, emit `receipt: true` in the mapping section.
     /// Enables `ctx.receipt` in event handlers (requires graph-node ≥ 0.26).
     #[serde(default)]
@@ -642,9 +650,12 @@ fn cmd_codegen(config_path: &PathBuf) -> Result<()> {
     // Generate contract bindings (dataSources + templates share the same codegen)
     let all_contracts = config.contracts.iter().chain(config.templates.iter());
     for contract in all_contracts {
+        // file/ipfs templates have no ABI — nothing to generate.
+        let Some(abi_path) = &contract.abi else { continue };
+
         println!("  Generating bindings for {}...", contract.name);
 
-        let code = codegen::generate_abi_bindings(&contract.abi, &contract.name)
+        let code = codegen::generate_abi_bindings(abi_path, &contract.name)
             .with_context(|| format!("Failed to generate bindings for {}", contract.name))?;
 
         // Write the generated file — use snake_case for valid Rust module names
@@ -701,8 +712,10 @@ fn cmd_codegen_watch(config_path: &PathBuf) -> Result<()> {
     }
     // Watch each ABI file.
     for c in config.contracts.iter().chain(config.templates.iter()) {
-        if c.abi.exists() {
-            watcher.watch(&c.abi, RecursiveMode::NonRecursive)?;
+        if let Some(abi) = &c.abi {
+            if abi.exists() {
+                watcher.watch(abi, RecursiveMode::NonRecursive)?;
+            }
         }
     }
 
