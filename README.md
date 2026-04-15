@@ -108,6 +108,7 @@ See [examples/erc20/src/lib.rs](examples/erc20/src/lib.rs) for the full working 
 | All GraphQL scalar types (`String`, `Int`, `Float`, `Boolean`, `BigInt`, `BigDecimal`, `Bytes`, `Address`, `Timestamp`, `Int8`, `DateTime`) | ✅ |
 | Block handler filters (`polling`, `every: N`) | ✅ |
 | Native `cargo test` (no Docker) | ✅ |
+| Non-fatal errors (`nonfatal_error!` macro) | ✅ |
 
 ## CLI
 
@@ -137,6 +138,8 @@ Install the CLI:
 cargo install graphite-cli
 ```
 
+The `graphite init` scaffold includes a commented `graft:` block in `subgraph.yaml` for subgraph grafting — resume indexing from an existing subgraph's store by uncommenting and setting the base subgraph and block.
+
 ### Block and Call Handlers in graphite.toml
 
 ```toml
@@ -145,6 +148,7 @@ name = "ERC20"
 abi  = "abis/ERC20.json"
 address    = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 start_block = 6082465
+receipt    = true   # expose TransactionReceipt in handler context
 
 # Optional: index every block
 [[contracts.block_handlers]]

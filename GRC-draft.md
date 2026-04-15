@@ -1,186 +1,232 @@
 **Stage:** RFC (Request for Comment)
-**Authors:** [@cargopete](https://github.com/cargopete)
-**Related:** [graph-node PR #6462](https://github.com/graphprotocol/graph-node/pull/6462) · [Graphite SDK](https://github.com/cargopete/graphite)
+**GRC:** 004
+**Authors:** [@cargopete](https://github.com/cargopete) (Petko Pavlovski)
+**Related:** [GRC-003](https://forum.thegraph.com/t/grc-003-rust-subgraph-mappings-a-native-rust-abi-for-graph-node/6889) · [Graphite SDK](https://github.com/cargopete/graphite) · [graph-node PR #6462](https://github.com/graphprotocol/graph-node/pull/6462)
+
+---
 
 ## Summary
 
-This GRC proposes adding first-class Rust support to graph-node as a second mapping language alongside AssemblyScript. Subgraph developers would write handlers in Rust, compile to `wasm32-unknown-unknown`, and declare `language: wasm/rust` in their manifest. Graph-node dispatches to a new `rust_abi` serialization layer; the existing `HostExports<C>` layer is unchanged.
+This GRC proposes recognising Rust as a first-class subgraph mapping language — not by changing graph-node, but by implementing the AssemblyScript ABI in Rust.
 
-A working implementation exists: the Graphite SDK compiles ERC20 handlers to WASM, and the graph-node fork has been live-tested indexing real USDC Transfer events from Ethereum mainnet via GraphQL.
+The Graphite SDK compiles Rust handlers to WASM that is structurally indistinguishable from AssemblyScript output. The manifest declares `language: wasm/assemblyscript`. Graph-node requires zero changes. The subgraph deploys like any other.
 
+This is not a design proposal. Two subgraphs are live on The Graph Studio today, indexing on Arbitrum One. The SDK has full feature parity with graph-ts. Everything a production subgraph needs can be written in Rust, tested with `cargo test`, and deployed with a single command.
 
+---
 
-## Motivation
+## Background
 
-AssemblyScript's pain points are well-documented in the community, but they are structural — not fixable at the SDK layer:
+GRC-003 proposed adding a native Rust ABI to graph-node — a parallel `rust_abi/` module (~1,450 LOC), manifest language dispatch, and a TLV serialization protocol. The PR received constructive feedback: a second ABI means a second surface to maintain, and the graph-node maintainers were understandably cautious about accepting a large outside contribution to a critical code path.
 
-**Nullable handling crashes at runtime.** AS type narrowing only works on local variables. Accessing a nullable property directly compiles without error but produces a WASM trap at runtime. The workaround — assigning every nullable field to a local before use — turns three lines into eight. Rust's `Option<T>` with `match` and `map` eliminates this entire class of bug at compile time.
+The response to that feedback was a question: *what if graph-node didn't need to change at all?*
 
-**No closures, no functional programming.** `array.map()`, `.filter()`, and `.forEach()` all crash the AS compiler. Developers fall back to C-style index loops. Rust's iterator chains are transformational for handler code that manipulates entity arrays and event parameter lists.
+---
 
-**Hostile debugging.** When the AS compiler crashes on basic operations (null-checking `event.transaction.to` is a known trigger), the official guidance from maintainers is to "comment the whole file and uncomment it little by little." Rust's compiler gives actionable errors pointing directly to the problem.
+## The Key Insight
 
-Additional issues compound: no `Date` support (developers write 50-line timestamp parsers), no regex, `===` performs identity comparison not value equality, array entity fields cannot be mutated in place, and Matchstick (the AS testing framework) requires a local PostgreSQL installation and produces silent type-mismatch failures.
+Graph-node does not inspect WASM binaries to determine their origin. It calls exported functions by name, passes data via the AssemblyScript memory model, and reads entity data back out through the same model. The "language" is not the WASM — it is the memory layout, allocator protocol, and string encoding the WASM uses.
 
-**The Graph has already validated this path.** Substreams uses Rust compiled to WASM and is described by the team as enabling "extremely high-performance indexing." This proposal extends that same foundation to the subgraph layer.
+The AssemblyScript memory model is fully specified:
 
+- A 20-byte object header (RT class ID, ref count, size)
+- Strings as UTF-16LE with a 4-byte length prefix
+- `TypedMap<K, V>` as a heap-allocated array of key-value pairs
+- A bump allocator exporting `__new(size, rtId) -> ptr` and `__pin` / `__unpin`
 
+Implementing this in Rust means the WASM output is structurally identical to AssemblyScript output. Graph-node accepts it as a standard subgraph. No heuristics. No dispatch. No new code paths.
+
+```
+Your Rust handler
+      │
+      ▼
+graphite-macros  (#[handler], #[derive(Entity)])
+      │
+      ▼
+graph-as-runtime  (AS ABI: allocator, UTF-16LE strings, TypedMap, host imports)
+      │
+      ▼
+WASM binary  ──────────────────►  unmodified graph-node / The Graph Studio
+```
+
+The concerns raised in GRC-003 — maintenance burden, ABI evolution, chain coverage gaps, namespace decisions — are all moot. There is no new ABI. There is no graph-node change. There is nothing to maintain upstream.
+
+---
 
 ## Design
 
-### Key insight: the coupling is only in the serialization layer
+### graph-as-runtime
 
-`HostExports<C>` is already fully language-agnostic. It operates on native Rust types: `String`, `HashMap<String, Value>`, `Vec<u8>`. The AS coupling lives entirely in `runtime/wasm/src/asc_abi/` — the code that serialises data in and out of AS memory. Adding Rust support means adding a parallel `rust_abi/` module and dispatching on `language:` in the manifest.
+The `graph-as-runtime` crate is a `no_std` implementation of the AssemblyScript runtime:
 
-```
-                    ┌─────────────────────────┐
-                    │    HostExports<C>        │  ← Unchanged
-                    │  (store, crypto, ipfs)   │
-                    └────────────┬────────────┘
-                                 │
-              ┌──────────────────┼──────────────────┐
-              │                                      │
-    ┌─────────┴─────────┐              ┌─────────────┴────────────┐
-    │  asc_abi/          │              │  rust_abi/  (new)        │
-    │  AscPtr<T>         │              │  ptr+len, TLV serde      │
-    └────────────────────┘              └──────────────────────────┘
-```
+- **Allocator.** A bump allocator that exports `__new`, `__pin`, and `__unpin` with the correct signatures. Graph-node calls `__new` to allocate strings and typed maps; the module owns its own heap.
+- **String encoding.** All strings passed to and from host functions are UTF-16LE with a 4-byte length prefix. `AscString::from_str` / `to_string` handle the conversion transparently.
+- **TypedMap.** Entities are serialised as AS `TypedMap<string, Value>` — an array of `{key: AscString, value: AscValue}` pairs with the correct RT class IDs. `store.set` and `store.get` operate on this layout.
+- **Host imports.** WASM host functions are imported by their exact AS names (`store.set`, `log.log`, `ethereum.call`, etc.) using `#[link(wasm_import_module)]`. Graph-node matches by name only.
 
-### ABI protocol
+### graphite-macros
 
-Graph-node calls Rust handlers with a simple C calling convention:
+- `#[handler]` generates a `#[no_mangle] pub extern "C"` entry point that reads an AS-encoded `EthereumEvent` from the pointer graph-node passes, calls the user's function, and returns.
+- `#[handler(call)]` / `#[handler(block)]` / `#[handler(file)]` handle the other trigger types.
+- `#[derive(Entity)]` is generated by `graphite codegen` from `schema.graphql` — typed structs with `new()`, `load()`, `save()`, `remove()`, and builder-pattern setters.
 
-```
-extern "C" fn handle_transfer(event_ptr: u32, event_len: u32) -> u32;
-```
+### graphite-sdk
 
-Serialization uses a simple TLV (Type-Length-Value) format. Graph-node writes serialised event data into the module's memory (via an exported `allocate(size) -> ptr`), calls the handler, then calls `reset_arena()` to return the bump allocator to its initial state. No managed heap, no garbage collection, no graph-node reaching into AS-style TypedMaps.
+The user-facing SDK re-exports everything a handler needs: `BigInt`, `BigDecimal`, `Address`, `Bytes`, `EventContext`, `crypto`, `ens`, `json`, `ipfs`, `data_source`, `mock`, and `nonfatal_error!`. On WASM it calls host FFI; on native (for `cargo test`) it dispatches to thread-local mocks.
 
-### What we tried to learn from the ASC ABI
+### graphite-cli
 
-- **No managed heap.** The module owns a bump allocator. Graph-node writes data, the module reads it, arena resets after the handler. No `allocate`-on-behalf-of-the-runtime complexity.
-- **Explicit TLV format.** Fixed, documented value tag table. No implicit type coercions. Endianness is specified (little-endian) in the protocol — the BigInt endianness bug that plagued early AS integrations is baked into the spec.
-- **Language detection via manifest.** `language: wasm/rust` — clean dispatch, no heuristics.
-- **Versioned from day one.** `apiVersion: 0.0.1` in the manifest gives an explicit migration path.
-
-### Manifest (no other changes required from subgraph authors)
-
-```yaml
-mapping:
-  kind: wasm/rust
-  apiVersion: 0.0.1
-  file: ./target/wasm32-unknown-unknown/release/my_subgraph.wasm
-  entities:
-    - Transfer
-  eventHandlers:
-    - event: Transfer(indexed address,indexed address,uint256)
-      handler: handle_transfer
+```bash
+graphite init my-subgraph                          # Scaffold from scratch
+graphite init my-subgraph --from-contract 0x...   # Fetch ABI from Etherscan
+graphite codegen                                   # Generate Rust types from ABI + schema.graphql
+graphite manifest                                  # Generate subgraph.yaml from graphite.toml
+graphite build                                     # cargo build → wasm-opt
+graphite test                                      # cargo test
+graphite deploy my-name/my-subgraph                # Deploy to local graph-node or The Graph Studio
 ```
 
+---
 
+## Developer Experience
 
-## Developer experience
-
-A Rust ERC20 handler looks like this:
+A handler in Graphite looks like this:
 
 ```rust
-use graphite::prelude::*;
+#![cfg_attr(target_arch = "wasm32", no_std)]
+extern crate alloc;
+
+use alloc::format;
+use graphite_macros::handler;
+mod generated;
+use generated::{ERC20TransferEvent, Transfer};
 
 #[handler]
-pub fn handle_transfer(event: TransferEvent) {
-    let id = format!("{}-{}", event.tx_hash, event.log_index);
-    let mut transfer = Transfer::new(&id);
-    transfer.from = event.from;
-    transfer.to = event.to;
-    transfer.value = event.value.clone();
-    transfer.block_number = event.block_number.clone();
-    transfer.save();
+pub fn handle_transfer(event: &ERC20TransferEvent, ctx: &graphite::EventContext) {
+    let id = format!("{}-{}", hex(&event.tx_hash), event.log_index[0]);
+    Transfer::new(&id)
+        .set_from(event.from.to_vec())
+        .set_to(event.to.to_vec())
+        .set_value(event.value.clone())
+        .set_block_number(ctx.block_number.clone())
+        .set_timestamp(ctx.block_timestamp.clone())
+        .save();
 }
 ```
 
-Testing runs natively with `cargo test` — no WASM compilation, no PostgreSQL, no external binaries:
+Tests run natively with `cargo test` — no WASM compiler, no PostgreSQL, no external binaries:
 
 ```rust
 #[test]
 fn transfer_creates_entity() {
-    let mut host = MockHost::default();
-    let event = TransferEvent { from: addr("0xaaaa..."), to: addr("0xbbbb..."), value: 1000u64.into(), .. };
-    handle_transfer(&mut host, &event);
-    assert_eq!(host.store.entity_count("Transfer"), 1);
+    graphite::mock::reset();
+    let raw = RawEthereumEvent {
+        tx_hash: [0xab; 32],
+        params: vec![
+            EventParam { name: "from".into(), value: EthereumValue::Address([0xaa; 20]) },
+            EventParam { name: "to".into(),   value: EthereumValue::Address([0xbb; 20]) },
+            EventParam { name: "value".into(), value: EthereumValue::Uint(vec![100]) },
+        ],
+        ..Default::default()
+    };
+    handle_transfer_impl(
+        &ERC20TransferEvent::from_raw_event(&raw).unwrap(),
+        &graphite::EventContext::default(),
+    );
+    assert!(graphite::mock::has_entity("Transfer", "abab...ab-00"));
 }
 ```
 
-| | AssemblyScript | Rust |
+| | AssemblyScript | Graphite (Rust) |
 |---|---|---|
-| Nullable safety | Runtime crashes | Compile-time `Option<T>` |
-| Closures / iterators | Compiler crashes | Full support |
+| Nullable safety | Runtime WASM trap | Compile-time `Option<T>` |
+| Closures / iterators | Compiler crash | Full support |
 | Testing setup | Node.js + PostgreSQL + binary | `cargo test`, nothing else |
 | Type errors | Silent runtime coercions | Compile-time |
 | Debugging | Comment-driven bisect | Actionable compiler errors |
-| Crate ecosystem | None | Full crates.io |
-| WASM performance | Baseline | ~2× faster |
+| Ecosystem | None | All of crates.io |
+| Crate deployment | n/a | `cargo install graphite-cli` |
 
+---
 
+## Implementation Status
 
-## Implementation status
+**This is a working implementation, not a proposal.**
 
-This is not a design-only proposal. A complete implementation exists and has been live-tested.
+### Feature parity with graph-ts
 
-**graph-node fork** (`cargopete/graph-node`, branch `rust-abi-support`):
-- `rust_abi/` module (~1,450 LOC): types, entity serialization, trigger serialization, host function wrappers
-- Manifest parsing (`wasm/rust` detection and language dispatch)
-- Rust handler invocation (ptr+len calling convention, arena reset after each handler)
-- Skip of AS-specific exports (`id_of_type`, `_start`, parity_wasm pipeline)
-- Wasmtime fuel metering (10B instruction budget, `OutOfFuel` as a deterministic error)
-- All existing tests passing
+Every host function exposed by graph-node is implemented:
 
-**Graphite SDK** (`cargopete/graphite`):
-- `#[derive(Entity)]` and `#[handler]` proc macros
-- TLV deserializer (`TlvReader`, `FromWasmBytes`)
-- ABI + GraphQL schema codegen (generates typed event structs and entity structs)
-- CLI: `init`, `codegen`, `build`, `test`, `deploy`
-- Panic hook (forwards panic message + file + line to graph-node via `abort`)
-- `MockHost` for native unit testing
+| Feature | Status |
+|---------|--------|
+| Event, call, block, file handlers | ✅ |
+| `store.set` / `store.get` / `store.remove` / `store.getInBlock` | ✅ |
+| `ethereum.call` (contract view calls) | ✅ |
+| `ethereum.encode` / `ethereum.decode` | ✅ |
+| `ipfs.cat` | ✅ |
+| `json.fromBytes` | ✅ |
+| `ens.nameByAddress` | ✅ |
+| `dataSource.create` / `createWithContext` | ✅ |
+| `crypto.keccak256` (native, no mock required) | ✅ |
+| `BigInt` — full arithmetic, bitwise, shifts | ✅ |
+| `BigDecimal` — full arithmetic | ✅ |
+| All GraphQL scalars (String, Int, Float, Boolean, BigInt, BigDecimal, Bytes, Address, Timestamp, Int8, DateTime) | ✅ |
+| `@derivedFrom`, immutable entities, non-fatal errors | ✅ |
+| Block handler filters (`polling`, `every: N`) | ✅ |
+| Dynamic data sources and factory pattern | ✅ |
+| Receipt context | ✅ |
+| Native `cargo test` (no Docker) | ✅ |
 
-**Live test:** deployed ERC20 subgraph to the graph-node fork, indexed real USDC Transfer events from Ethereum mainnet (block 24756400+), queried via GraphQL. All fields correct: `from`, `to`, `value`, `blockNumber`, `timestamp`, `transactionHash`.
+### Examples (all tested, all CI'd to WASM)
 
-Draft PR: [graphprotocol/graph-node#6462](https://github.com/graphprotocol/graph-node/pull/6462)
+- **erc20** — ERC20 Transfer indexer. Live on The Graph Studio, Arbitrum One.
+- **erc721** — NFT transfer and approval indexer. Live on The Graph Studio, Arbitrum One.
+- **erc1155** — Multi-token: TransferSingle, TransferBatch, URI.
+- **multi-source** — Multiple contracts in one subgraph, one WASM file.
+- **file-ds** — File data source: ERC721 transfer spawns IPFS metadata handler.
+- **uniswap-v2** — Factory + template pattern: tracks pairs and swaps.
 
+### Crates
 
+| Crate | crates.io |
+|-------|-----------|
+| `graph-as-runtime` | Published |
+| `graphite-macros` | Published |
+| `graphite-sdk` | Published (imported as `graphite`) |
+| `graphite-cli` | Published (`cargo install graphite-cli`) |
 
-## Scope of graph-node changes
+---
 
-The change is additive. Existing AS subgraphs are unaffected.
+## What This Means for The Graph
 
-| Area | Change |
-|---|---|
-| `runtime/wasm/src/rust_abi/` | **New** — ~1,450 LOC across 5 files |
-| `graph/src/data_source/` | **Modified** — `MappingLanguage` enum, manifest parsing |
-| `runtime/wasm/src/module/` | **Modified** — linker dispatch, handler invocation |
-| `chain/ethereum/src/trigger.rs` | **Modified** — `ToRustBytes` for Log/Call/Block triggers |
-| `HostExports<C>` | **Unchanged** |
+**Nothing breaks.** Existing AS subgraphs are unaffected. The manifest still declares `language: wasm/assemblyscript`. The network, The Graph Studio, hosted service, and graph-node are all unchanged.
 
-A new host function costs one entry in `rust_abi/host.rs` (a thin ptr+len wrapper over the existing `HostExports` method). No changes to the AS path.
+**Rust subgraphs work today.** Any developer can `cargo install graphite-cli`, scaffold a project, and deploy to The Graph Studio without waiting for a protocol upgrade, a graph-node release, or a governance decision.
 
+**The maintenance concern from GRC-003 is resolved.** There is no second ABI in graph-node. There is no upstream code to accept. There is nothing for the protocol to maintain. Graphite is a library, not a fork.
 
+**The developer experience concern is also resolved.** The GRC-003 PR feedback noted that a two-ABI graph-node would require both teams to stay in sync. This approach requires no coordination — graph-node can release independently, and Graphite tracks the AS ABI by matching the TypedMap layout and host function signatures, which are stable by definition (changing them would break all existing subgraphs).
 
-## Open questions for community feedback
+---
 
-1. **Namespace.** Host functions currently use `"graphite"` as the WASM import namespace. Should this be `"graph"` or something more official?
+## Open Questions
 
-2. **API versioning.** Should `apiVersion: 0.0.1` be independent of the AS versioning scheme, or aligned with it?
+1. **Official recognition.** Should The Graph Foundation link to Graphite as a supported alternative SDK in the official documentation, alongside `graph-ts`?
 
-3. **Shared constants.** TLV value tags are currently duplicated between graph-node and the SDK. Worth a shared `graph-abi` crate, or is the spec doc sufficient?
+2. **graph-cli integration.** The Graph CLI currently scaffolds AssemblyScript-only projects. Is there appetite for `graph init --language rust` to delegate to Graphite, or is a separate `graphite init` the right long-term story?
 
-4. **NEAR and other chains.** Ethereum triggers are fully serialized. NEAR has a stub (`unimplemented!()`). Scope for initial merge: Ethereum-only, with other chains following the same pattern.
+3. **Subgraph Studio UI.** When developers deploy a Graphite subgraph, Studio correctly reports it as `wasm/assemblyscript`. Is there value in surfacing the underlying language — or is the current behaviour ideal, since it requires no Studio changes?
 
-5. **Long-term ABI evolution.** If the TLV format needs to change, what's the migration story? `apiVersion` in the manifest is the current answer, but we'd welcome input on whether a more formal versioning mechanism is warranted.
+4. **Long-term ABI stability.** The AS ABI is stable by necessity — breaking it would break all existing subgraphs. Is there any planned change to the graph-node runtime (e.g., a new allocation protocol, a new string encoding) that Graphite should be aware of?
 
+5. **Chain coverage.** The Graphite SDK currently covers Ethereum (all trigger types). Are there non-EVM chains where community members would want Rust support? The same AS-ABI approach applies — the trigger serialization for each chain would need to be implemented in `graph-as-runtime`.
 
+---
 
 ## References
 
-- [graph-node PR #6462](https://github.com/graphprotocol/graph-node/pull/6462)
+- [GRC-003: Rust Subgraph Mappings — A Native Rust ABI for graph-node](https://forum.thegraph.com/t/grc-003-rust-subgraph-mappings-a-native-rust-abi-for-graph-node/6889)
+- [graph-node PR #6462](https://github.com/graphprotocol/graph-node/pull/6462) — the original native ABI implementation
 - [Graphite SDK](https://github.com/cargopete/graphite)
-- [RFC: Designing a native Rust subgraph experience](https://github.com/cargopete/graphite/blob/main/rfc-rust-subgraph.md)
+- [graphite-cli on crates.io](https://crates.io/crates/graphite-cli)
 - [Substreams documentation](https://thegraph.com/docs/en/substreams/) — prior art for Rust→WASM in The Graph ecosystem
