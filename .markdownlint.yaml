@@ -1,0 +1,19 @@
+# Markdownlint config
+# https://github.com/DavidAnson/markdownlint
+
+default: true
+
+# Allow HTML in markdown (GitBook hint blocks render as HTML)
+MD033: false
+
+# Allow duplicate headings across files
+MD024: false
+
+# Line length — relaxed for code-heavy docs
+MD013:
+  line_length: 120
+  code_blocks: false
+  tables: false
+
+# Allow multiple blank lines (GitBook section separators)
+MD012: false

@@ -1,0 +1,10 @@
+[book]
+title       = "Graphite"
+description = "Write The Graph subgraph handlers in Rust"
+src         = "docs"
+language    = "en"
+
+[output.html]
+site-url            = "/graphite/"
+git-repository-url  = "https://github.com/cargopete/graphite"
+edit-url-template   = "https://github.com/cargopete/graphite/edit/main/{path}"
