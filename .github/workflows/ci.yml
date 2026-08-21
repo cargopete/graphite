@@ -10,6 +10,9 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+  # The commands CI runs live in yatr.toml, so `yatr ci` locally is the
+  # same gate. Bump deliberately.
+  YATR_VERSION: "1.1.0"
 jobs:
   test:
     name: Test
@@ -25,8 +28,24 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache yatr
+        id: cache-yatr
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/yatr
+          key: yatr-${{ runner.os }}-${{ env.YATR_VERSION }}
+
+      - name: Install yatr
+        if: steps.cache-yatr.outputs.cache-hit != 'true'
+        # RUSTFLAGS is cleared deliberately: yatr is a different crate and must
+        # not inherit this project's flags (a `-D warnings` or a custom linker
+        # would fail or mislink the install).
+        run: cargo install yatr --version ${{ env.YATR_VERSION }} --locked
+        env:
+          RUSTFLAGS: ""
+
       - name: cargo test
-        run: cargo test --workspace
+        run: yatr test
 
   build-wasm:
     name: Build WASM
@@ -117,8 +136,24 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache yatr
+        id: cache-yatr
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/yatr
+          key: yatr-${{ runner.os }}-${{ env.YATR_VERSION }}
+
+      - name: Install yatr
+        if: steps.cache-yatr.outputs.cache-hit != 'true'
+        # RUSTFLAGS is cleared deliberately: yatr is a different crate and must
+        # not inherit this project's flags (a `-D warnings` or a custom linker
+        # would fail or mislink the install).
+        run: cargo install yatr --version ${{ env.YATR_VERSION }} --locked
+        env:
+          RUSTFLAGS: ""
+
       - name: cargo fmt
-        run: cargo fmt --all -- --check
+        run: yatr fmt-check
 
       - name: cargo clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: yatr lint
